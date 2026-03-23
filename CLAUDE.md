@@ -6,4 +6,12 @@
 - SSH access: `ssh 192.168.1.10` (root)
 - bcachefs pool mounted at `/store`
 - Samba shares: media, st, data, tm
-- Docs: rtx.md (Resolve), upgrade.md (hardware), llm.md (LLM inference)
+- Docs: resolve-remote-render.md (DaVinci Resolve), lab-hardware.md (hardware specs)
+
+## Arqic + Khor Specs (at /data/code/ws/docs/)
+
+- **arqic-specs.md** — Arqic inference fabric (arqic-router + arqic-engine)
+- **khor-cache-specs.md** — Khor Cache RDMA KV cache tier
+- **arqic-khor-references.md** — Technical references (Dynamo, NIXL, TRT-LLM, STX/CMX)
+- **Always consult arqic-khor-references.md** before implementing features that interact with external APIs
+- gw lives at `/data/code/ws/gw`. Arqic treats gw as an external platform component.
