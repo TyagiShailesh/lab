@@ -6,7 +6,7 @@ DaVinci Resolve render node + storage server.
 
 ```
 ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake)
-62 GB RAM / Ubuntu 24.04 / Kernel 6.19.6
+64 GB RAM / Ubuntu 24.04 / Kernel 6.19.6
 
 M.2_1 (Gen5, CPU)     → Samsung 9100 Pro 4TB  → /cache (Resolve scratch)      [pending]
 M.2_2 (Gen4, chipset) → Samsung 990 Pro 2TB   → boot (XFS)                     [done]
@@ -14,8 +14,8 @@ M.2_3 (Gen4, chipset) → Samsung 9100 Pro 4TB  → bcachefs cache              
 M.2_4 (Gen4, chipset) → WD Black SN850X 2TB   → bcachefs cache                 [done]
 PCIEX16_1 (Gen5, CPU) → RTX 6000 Blackwell    → GPU render + NVENC             [pending]
 SATA                   → 2x Seagate Exos 14TB  → bcachefs data (mirrored)       [done]
-10GbE (AQC113)         → ~1,100 MB/s                                            [done]
-TB5 (Barlow Ridge)     → ~5 GB/s                                                [done]
+10GbE (Marvell AQtion) → ~1,100 MB/s                                            [done]
+2x TB5 + 1x TB4       → USB Type-C                                             [done]
 ```
 
 ## Storage Layout
@@ -51,10 +51,24 @@ TB5 (Barlow Ridge)     → ~5 GB/s                                              
 | NVIDIA driver + headless config | pending (needs GPU) |
 | Resolve render node service | pending (needs GPU) |
 
+## Services
+
+| Service | Status |
+|---|---|
+| bcachefs-store.service | enabled |
+| postgresql | active |
+| smbd | active |
+| avahi-daemon | active (lab.local mDNS) |
+| wg-quick@wg0 | active (VPN) |
+| cpu-performance | enabled (performance governor) |
+
 ## Docs
 
-- [resolve-remote-render.md](resolve-remote-render.md) — Resolve remote render setup
-- [lab-hardware.md](lab-hardware.md) — hardware upgrade plan (BIOS, SSDs, RTX 6000)
+- [hardware.md](hardware.md) — board, CPU, RAM, slots, ports
+- [storage.md](storage.md) — bcachefs, samba, PostgreSQL
+- [gpu.md](gpu.md) — NVIDIA driver, Xorg headless, FFmpeg encode commands
+- [resolve.md](resolve.md) — DaVinci Resolve setup, color management, remote render
+- [upgrade-plan.md](upgrade-plan.md) — BIOS update, SSD + GPU install phases
 
 ## Arqic + Khor (moved)
 

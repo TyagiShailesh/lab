@@ -6,7 +6,7 @@
 - SSH access: `ssh 192.168.1.10` (root)
 - bcachefs pool mounted at `/store`
 - Samba shares: media, st, data, tm
-- Docs: resolve-remote-render.md (DaVinci Resolve), lab-hardware.md (hardware specs)
+- Docs: hardware.md, storage.md, gpu.md, resolve.md, upgrade-plan.md
 
 ## Arqic + Khor Specs (at /data/code/ws/docs/)
 
