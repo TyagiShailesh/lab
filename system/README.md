@@ -27,8 +27,8 @@ Custom-compiled, **not** from Ubuntu packages. EFISTUB boot — **no GRUB, no in
 
 | | |
 |---|---|
-| Running | 6.19.6 (`SMP PREEMPT_DYNAMIC`, built as root@nas) |
-| Fallback | 6.16.4 |
+| Running | 6.19.9 (`SMP PREEMPT_DYNAMIC`, built as root@nas) |
+| Fallback | 6.19.6 |
 | Boot | EFISTUB direct — UEFI firmware loads bzImage, no bootloader |
 | cmdline | `root=/dev/nvme0n1p2 rw` |
 | Build pipeline | `system/` (this directory) |
@@ -37,7 +37,7 @@ Custom-compiled, **not** from Ubuntu packages. EFISTUB boot — **no GRUB, no in
 
 ```
 UEFI firmware
-  └── EFISTUB: \linux-6.19.6 on EFI partition
+  └── EFISTUB: \linux-6.19.9 on EFI partition
         └── cmdline: root=/dev/nvme0n1p2 rw
               └── Kernel boots directly (monolithic, no initramfs)
                     └── XFS root mounted (built-in)
@@ -48,8 +48,8 @@ UEFI firmware
 ### EFI boot entries
 
 ```
-Boot0001* Linux 6.19.6  → \linux-6.19.6   (current)
-Boot0000* Linux         → \linux-6.16.4   (fallback)
+Boot0005* Linux 6.19.9  → \linux-6.19.9   (current)
+Boot0001* Linux 6.19.6  → \linux-6.19.6   (fallback)
 ```
 
 Kernel images live directly on the EFI partition (`/boot/efi/`). Managed by `efibootmgr`.
@@ -88,7 +88,7 @@ bcachefs: loading out-of-tree module taints kernel.
 
 The module and tools are built inside `build-kernel.sh` as part of the kernel tarball:
 
-1. Clone `koverstreet/bcachefs-tools` at pinned tag (v1.36.1)
+1. Clone `koverstreet/bcachefs-tools` at pinned tag (see `build-kernel.sh`)
 2. Build DKMS source, then compile module against the new kernel tree
 3. Build `bcachefs` userspace binary
 4. Package `bcachefs.ko` + `bcachefs` binary into the kernel tarball
@@ -112,10 +112,10 @@ config              → kernel .config (back up before modifying)
 ```bash
 # 1. Edit config if needed (back it up first)
 # 2. Build kernel + bcachefs module + tools
-./build-kernel.sh          # → linux-6.19.6.tar.zst
+./build-kernel.sh          # → images/linux-<version>.tar.zst
 
 # 3. Install to target disk
-./install-kernel.sh linux-6.19.6.tar.zst /dev/nvme0n1
+./install-kernel.sh images/linux-<version>.tar.zst /dev/nvme0n1
 ```
 
 #### Build rootfs (fresh install only)
@@ -128,7 +128,7 @@ config              → kernel .config (back up before modifying)
 ./install-rootfs.sh images/ubuntu-24.04-amd64.tar.zst /dev/nvme0n1
 
 # 3. Install kernel on top
-./install-kernel.sh linux-6.19.6.tar.zst /dev/nvme0n1
+./install-kernel.sh images/linux-<version>.tar.zst /dev/nvme0n1
 ```
 
 `build-kernel.sh` enables `CRYPTO_LZ4`, `CRYPTO_LZ4HC`, `BLK_DEV_INTEGRITY` (bcachefs deps) and `TCP_CONG_BBR`, `NET_SCH_FQ` (BBR) in the config, then builds the kernel, bcachefs module, and userspace tools into a single tarball. Always update to the latest stable kernel and bcachefs-tools tag before building.

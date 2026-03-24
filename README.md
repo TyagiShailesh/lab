@@ -6,7 +6,7 @@ DaVinci Resolve render node + storage server.
 
 ```
 ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake)
-64 GB RAM / Ubuntu 24.04 / Kernel 6.19.6
+64 GB RAM / Ubuntu 24.04 / Kernel 6.19.9
 
 M.2_1 (Gen5, CPU)     → Samsung 9100 Pro 4TB  → /cache (Resolve scratch)      [pending]
 M.2_2 (Gen4, chipset) → Samsung 990 Pro 2TB   → boot (XFS)                     [done]
