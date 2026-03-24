@@ -148,6 +148,20 @@ wg0 (10.0.0.1/30, UDP 51820)
 
 Bridge managed by netplan → systemd-networkd. Static IP, jumbo frames.
 
+### Thunderbolt networking
+
+Patched `thunderbolt_net` driver with page_pool RX and 1024-entry ring (source in `thunderbolt_net/`). Built as out-of-tree module alongside bcachefs in `build-kernel.sh`.
+
+Rear I/O USB-C ports (from manual p.30):
+- **Port 2** — Thunderbolt 5 (Barlow Ridge, domain1, PCI `87:00.0`) — 80 Gbps
+- **Port 10** — Thunderbolt 4 (Meteor Lake PCH, domain0, PCI `00:0d.2`) — 40 Gbps
+
+Measured throughput (iperf3, TB5 port, Mac connected):
+- **TX (lab→Mac):** ~41 Gbps (single stream), ~40 Gbps (8 streams)
+- **RX (Mac→lab):** ~29 Gbps (single stream)
+
+The ~40 Gbps cap is a **driver limitation**, not hardware. The driver uses a single TX/RX DMA ring pair on one CPU core. The Barlow Ridge NHI supports up to 1023 HopIDs and has 16 MSI-X vectors — multi-queue is possible but requires a significant driver rewrite (multi-ring + USB4NET protocol negotiation changes). Not worth pursuing since 40 Gbps (~5 GB/s) exceeds storage throughput (SSD writes at 2.5 GB/s).
+
 ### WireGuard
 
 ```ini
