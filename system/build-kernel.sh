@@ -59,6 +59,16 @@ make -C "$bcachefs_dir" -j"$(nproc)" bcachefs
 mkdir -p "$staging/usr/local/sbin"
 cp "$bcachefs_dir/bcachefs" "$staging/usr/local/sbin/bcachefs"
 
+# --- thunderbolt_net out-of-tree module (performance-patched) ---
+tbnet_src="$(cd "$(dirname "$0")" && pwd)/thunderbolt_net"
+if [ -d "$tbnet_src" ]; then
+  make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- -j"$(nproc)" \
+    M="$tbnet_src" modules
+  tbnet_dest="$staging/usr/lib/modules/$kver/kernel/drivers/net/thunderbolt"
+  mkdir -p "$tbnet_dest"
+  cp "$tbnet_src"/thunderbolt_net.ko "$tbnet_dest"/
+fi
+
 # --- Finalize modules ---
 find "$staging"/usr/lib/modules -name "build" -type l -delete
 find "$staging"/usr/lib/modules -name "source" -type l -delete
@@ -73,6 +83,7 @@ fail=0
 [ -f "$staging/usr/lib/modules/$kver/modules.dep" ] && echo "OK: modules.dep" || { echo "FAIL: modules.dep missing"; fail=1; }
 [ -f "$staging/usr/local/sbin/bcachefs" ] && echo "OK: /usr/local/sbin/bcachefs" || { echo "FAIL: bcachefs tools missing"; fail=1; }
 grep -q bcachefs "$staging/usr/lib/modules/$kver/modules.dep" && echo "OK: bcachefs in modules.dep" || { echo "FAIL: bcachefs not in modules.dep"; fail=1; }
+[ -f "$staging/usr/lib/modules/$kver/kernel/drivers/net/thunderbolt/thunderbolt_net.ko" ] && echo "OK: thunderbolt_net.ko" || { echo "FAIL: thunderbolt_net.ko missing"; fail=1; }
 [ "$fail" -eq 1 ] && { echo "FATAL: verification failed"; exit 1; }
 
 # --- Create tarball ---
