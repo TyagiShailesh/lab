@@ -38,7 +38,7 @@ TB5 (Barlow Ridge)     → ~5 GB/s                                              
 | Component | Status |
 |---|---|
 | Samba (media/st/data/TM shares, SMB3) | done |
-| bcachefs tuning (metadata_target=ssd) | done |
+| bcachefs tuning (SSD durability 2, no foreground compression, zstd at rest) | done |
 | PostgreSQL 18 (PGDG, nightly backup) | done |
 | Mac Resolve → PostgreSQL | done |
 | Xorg + VNC (TigerVNC) | done |
