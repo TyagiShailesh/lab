@@ -68,7 +68,7 @@ Kernel images live directly on the EFI partition (`/boot/efi/`). Managed by `efi
 
 ## bcachefs module
 
-bcachefs is compiled as an **out-of-tree kernel module** — not in the kernel config. It was built-in (`CONFIG_BCACHEFS_FS=y`) in 6.16.4, but moved out-of-tree in 6.19.6 for better version control.
+bcachefs is compiled as an **out-of-tree kernel module** — not in the kernel config.
 
 The kernel taints on load:
 

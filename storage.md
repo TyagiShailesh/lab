@@ -23,7 +23,6 @@ bcachefs format \
   --promote_target=ssd --metadata_target=ssd
 ```
 
-> SSD durability was originally 0, changed to 2 for full NVMe write speed.
 > Durability is stored in the on-disk superblock — change live with:
 > `echo 2 > /sys/fs/bcachefs/<uuid>/dev-2/durability`
 
