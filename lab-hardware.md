@@ -37,6 +37,48 @@
   - `foreground_target: ssd`, `background_target: hdd`, `promote_target: ssd`, `metadata_target: ssd`
 - **Capacity:** ~24 TB raw (14 TB usable after mirroring), 8.4 TB used
 
+#### Format command (reference)
+
+```bash
+bcachefs format \
+  --label=hdd --durability=1 /dev/sda \
+  --label=hdd --durability=1 /dev/sdb \
+  --label=ssd --durability=2 /dev/nvme1n1 \
+  --metadata_replicas=2 --data_replicas=2 \
+  --compression=none --background_compression=zstd \
+  --foreground_target=ssd --background_target=hdd \
+  --promote_target=ssd --metadata_target=ssd
+```
+
+> SSD durability was originally 0, changed to 2 for full NVMe write speed.
+> Durability is stored in the on-disk superblock — change live with:
+> `echo 2 > /sys/fs/bcachefs/<uuid>/dev-2/durability`
+
+#### Mount command
+
+```bash
+mount -t bcachefs /dev/nvme1n1:/dev/sda:/dev/sdb -o version_upgrade=none /store
+```
+
+#### Systemd service (`/etc/systemd/system/bcachefs-store.service`)
+
+```ini
+[Unit]
+Description=Mount BcacheFS storage pool
+Requires=dev-nvme1n1.device dev-sda.device dev-sdb.device systemd-modules-load.service
+After=dev-nvme1n1.device dev-sda.device dev-sdb.device systemd-modules-load.service
+
+[Service]
+ExecStartPre=/sbin/modprobe bcachefs
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/sh -c 'mount -t bcachefs /dev/nvme1n1:/dev/sda:/dev/sdb -o version_upgrade=none /store'
+ExecStop=/usr/bin/umount /store
+
+[Install]
+WantedBy=multi-user.target
+```
+
 ### Samba shares
 
 | Share | Path | Notes |
