@@ -3,7 +3,7 @@
 ## bcachefs pool
 
 - **Devices:** 2x HDD (data, mirrored) + 1x NVMe SSD (cache, durability 2)
-- **Mount:** `/data` (primary), `/store` (bind)
+- **Mount:** `/store` (via `bcachefs-store.service`)
 - **Replication:** metadata 2, data 2
 - **Compression:** none (foreground), zstd (background — applied during HDD migration)
 - **Tiering:** writes land on SSD uncompressed at full NVMe speed (~2.5 GB/s), background-move to HDD with zstd; reads promote to SSD
@@ -27,30 +27,16 @@ bcachefs format \
 > Durability is stored in the on-disk superblock — change live with:
 > `echo 2 > /sys/fs/bcachefs/<uuid>/dev-2/durability`
 
-### Mount command
+### Measured performance
 
-```bash
-mount -t bcachefs /dev/nvme1n1:/dev/sda:/dev/sdb -o version_upgrade=none /store
-```
-
-### Systemd service (`/etc/systemd/system/bcachefs-store.service`)
-
-```ini
-[Unit]
-Description=Mount BcacheFS storage pool
-Requires=dev-nvme1n1.device dev-sda.device dev-sdb.device systemd-modules-load.service
-After=dev-nvme1n1.device dev-sda.device dev-sdb.device systemd-modules-load.service
-
-[Service]
-ExecStartPre=/sbin/modprobe bcachefs
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/bin/sh -c 'mount -t bcachefs /dev/nvme1n1:/dev/sda:/dev/sdb -o version_upgrade=none /store'
-ExecStop=/usr/bin/umount /store
-
-[Install]
-WantedBy=multi-user.target
-```
+| Test | Speed |
+|---|---|
+| Sequential read (SSD cache) | 3,393 MB/s |
+| Sequential write (SSD) | 2,345 MB/s |
+| Random 4K read IOPS | 102,000 |
+| Random 4K write IOPS | 618,000 |
+| HDD sequential read | 256 MB/s |
+| HDD sequential write | 249 MB/s |
 
 ---
 
@@ -58,25 +44,17 @@ WantedBy=multi-user.target
 
 | Share | Path | Notes |
 |---|---|---|
-| media | `/store/media` | force user: st |
+| media | `/store/media` | force user: st, 0644/0755 masks |
 | st | `/store/st` | force user: st, 0600/0700 masks |
 | data | `/store/data` | force user: st, 0600/0700 masks |
 | tm | `/store/tm` | Time Machine, 4 TB max |
 
 Config: SMB3 minimum, macOS fruit/AAPL extensions enabled, NetBIOS disabled.
 
-Config file: `/etc/samba/smb.conf`
+Mac mounts: `smb://lab.local/media` → `/Volumes/media`
+Linux symlinks: `/Volumes/media` → `/store/media`, `/Volumes/st` → `/store/st`
 
-### Path mapping
-
-Mac mounts shares individually. Linux has symlinks for Resolve path matching:
-
-```
-/Volumes/media → /store/media
-/Volumes/st    → /store/st
-```
-
-Mac: `smb://lab.local/media` mounts at `/Volumes/media`
+Full smb.conf and service configs: [system/post-install.md](system/post-install.md)
 
 ---
 
@@ -91,3 +69,5 @@ User:    resolve / resolve
 Auth:    scram-sha-256 from 192.168.1.0/24
 Backup:  /store/media/resolve/backup/ (nightly 3am, 30-day retention)
 ```
+
+Install and backup cron setup: [system/post-install.md](system/post-install.md)

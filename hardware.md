@@ -13,7 +13,7 @@
 | Thunderbolt | 2x Thunderbolt 5 + 1x Thunderbolt 4 (USB Type-C) |
 | WiFi | Wi-Fi 7 (802.11be) 2x2 + Bluetooth 5.4 |
 | WireGuard | wg0 (10.0.0.1/30) |
-| Kernel | 6.19.6 (PREEMPT_DYNAMIC) |
+| Kernel | 6.19.9 (PREEMPT_DYNAMIC) |
 | OS | Ubuntu (XFS root) |
 
 ## Slots and Drives
