@@ -29,11 +29,11 @@
 
 ### bcachefs pool
 
-- **Devices:** 2x HDD (data, mirrored) + 1x NVMe SSD (cache, durability 0)
+- **Devices:** 2x HDD (data, mirrored) + 1x NVMe SSD (cache, durability 2)
 - **Mount:** `/data` (primary), `/store` (bind)
 - **Replication:** metadata 2, data 2
-- **Compression:** lz4 (foreground), zstd (background)
-- **Tiering:** writes land on SSD, background-move to HDD; reads promote to SSD
+- **Compression:** none (foreground), zstd (background — applied during HDD migration)
+- **Tiering:** writes land on SSD uncompressed at full NVMe speed (~2.5 GB/s), background-move to HDD with zstd; reads promote to SSD
   - `foreground_target: ssd`, `background_target: hdd`, `promote_target: ssd`, `metadata_target: ssd`
 - **Capacity:** ~24 TB raw (14 TB usable after mirroring), 8.4 TB used
 
