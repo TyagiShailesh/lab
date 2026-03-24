@@ -19,7 +19,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Downloading and extracting base image"
-wget -O- "$src" | tar -xJpf - -C "$build"
+wget --no-check-certificate -O- "$src" | tar -xJpf - -C "$build"
 
 rm -f "$build"/etc/resolv.conf
 cp /etc/resolv.conf "$build"/etc/resolv.conf
@@ -86,12 +86,18 @@ WantedBy=multi-user.target
 SVC
 
 # Services
+systemctl enable ssh.socket
+systemctl enable systemd-networkd
+systemctl enable systemd-resolved
 systemctl enable chrony
 systemctl enable irqbalance
 systemctl enable avahi-daemon
 systemctl enable smbd
 systemctl enable cpu-performance
 systemctl enable fstrim.timer
+
+# DNS — symlink for systemd-resolved
+ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
 # Sysctl — tuned for high-bandwidth NAS workloads
 cat > /etc/sysctl.d/99-lab.conf << 'SYSCTL'

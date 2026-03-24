@@ -16,7 +16,7 @@ build=$(mktemp -d); trap 'rm -rf "$build"' EXIT
 staging="$build/staging"
 
 # --- Kernel build ---
-wget -O- "$src" | tar -xJf - -C "$build" --strip-components=1
+wget --no-check-certificate -O- "$src" | tar -xJf - -C "$build" --strip-components=1
 
 cp config "$build/.config"
 
@@ -76,5 +76,6 @@ grep -q bcachefs "$staging/usr/lib/modules/$kver/modules.dep" && echo "OK: bcach
 [ "$fail" -eq 1 ] && { echo "FATAL: verification failed"; exit 1; }
 
 # --- Create tarball ---
-tar -C "$staging" -I 'zstd --threads=0' -Scf "$pkg.tar.zst" .
-du -sh "$pkg.tar.zst" && echo "Build complete. Output is $pkg.tar.zst"
+mkdir -p images
+tar -C "$staging" -I 'zstd --threads=0' -Scf "images/$pkg.tar.zst" .
+du -sh "images/$pkg.tar.zst" && echo "Build complete. Output is images/$pkg.tar.zst"
