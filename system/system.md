@@ -157,10 +157,23 @@ Rear I/O USB-C ports (from manual p.30):
 - **Port 10** — Thunderbolt 4 (Meteor Lake PCH, domain0, PCI `00:0d.2`) — 40 Gbps
 
 Measured throughput (iperf3, TB5 port, Mac connected):
-- **TX (lab→Mac):** ~41 Gbps (single stream), ~40 Gbps (8 streams)
-- **RX (Mac→lab):** ~29 Gbps (single stream)
+- **TX (lab→Mac):** ~41 Gbps / 5.1 GB/s (single core TX bottleneck)
+- **RX (Mac→lab):** ~30 Gbps / 3.75 GB/s (single core NAPI poll bottleneck)
 
-The ~40 Gbps cap is a **driver limitation**, not hardware. The driver uses a single TX/RX DMA ring pair on one CPU core. The Barlow Ridge NHI supports up to 1023 HopIDs and has 16 MSI-X vectors — multi-queue is possible but requires a significant driver rewrite (multi-ring + USB4NET protocol negotiation changes). Not worth pursuing since 40 Gbps (~5 GB/s) exceeds storage throughput (SSD writes at 2.5 GB/s).
+The caps are a **driver limitation**, not hardware. The driver uses a single TX/RX DMA ring pair — one CPU core handles all packets. The Barlow Ridge NHI supports up to 1023 HopIDs and 16 MSI-X vectors, but:
+- **Multi-TX ring** (Lab→Mac improvement): feasible without protocol changes (~200 LOC), but Lab→Mac is already fast enough for serving files
+- **Multi-RX ring** (Mac→Lab improvement): requires USB4NET protocol changes that would break macOS compatibility — not viable
+- **RPS/busy-poll tuning**: tested, no improvement for single-flow RX (work happens in NAPI before RPS)
+
+For backups (Mac→Lab), the 3.75 GB/s RX throughput is adequate — Mac SSD sustained read and SMB overhead are comparable bottlenecks.
+
+#### Tuning (persistent via `thunderbolt-tune.service`)
+
+```
+IRQ pinning:  RX → P-core 0 (5 GHz), TX → P-core 1
+RPS:          all 14 cores (3fff), 4096 flow entries
+NAPI:         busy-poll (defer_hard_irqs=2, gro_flush_timeout=200000)
+```
 
 ### WireGuard
 
