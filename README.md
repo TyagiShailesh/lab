@@ -64,6 +64,7 @@ SATA                   → 2x Seagate Exos 14TB  → bcachefs data (mirrored)   
 
 ## Docs
 
+- [system/](system/) — OS, custom kernel, EFISTUB boot, bcachefs module, build scripts, kernel config
 - [hardware.md](hardware.md) — board, CPU, RAM, slots, ports
 - [storage.md](storage.md) — bcachefs, samba, PostgreSQL
 - [gpu.md](gpu.md) — NVIDIA driver, Xorg headless, FFmpeg encode commands
