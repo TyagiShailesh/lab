@@ -2,8 +2,8 @@
 # AV1 transcode (Intel VA-API 10-bit)
 set -euo pipefail
 
-SRC="/store/media/transcode"
-DST="/store/media/transcode/av1"
+SRC="/store/media/video/transcode"
+DST="/store/media/video/transcode/av1"
 
 find "$SRC" -path "$DST" -prune -o -type f \( -iname '*.mp4' -o -iname '*.mov' -o -iname '*.mkv' -o -iname '*.avi' -o -iname '*.mts' -o -iname '*.m4v' -o -iname '*.mxf' \) -print0 | while IFS= read -r -d '' file; do
   rel="${file#$SRC/}"
