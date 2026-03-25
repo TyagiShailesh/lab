@@ -1,32 +1,66 @@
 # GPU
 
-No discrete GPU installed yet. RTX 6000 Blackwell is pending.
+No discrete GPU installed yet.
 
 ## Current: Intel integrated (Arrow Lake UHD)
 
 - VA-API hardware encode via `/dev/dri/renderD128`
 - OpenVINO 2026.0.0 installed
 
-## Planned: RTX 6000 Blackwell
+## Planned: AMD Radeon AI PRO R9700
 
-- Slot: PCIEX16_1 (Gen5 x16, CPU-direct)
-- 96 GB VRAM
-- CUDA, NVENC (AV1/HEVC), LLM inference
+Primary discrete GPU. ASRock Creator variant (blower, 4× DP 2.1a, vapor
+chamber, multi-GPU airflow cutouts).
 
-### NVIDIA driver install
+- Architecture: RDNA 4 (Navi 48), 4nm
+- VRAM: 32 GB GDDR6 (ECC), 256-bit, 640 GB/s
+- Compute: 48 TFLOPS FP32, 191 TFLOPS FP16 matrix, 1531 INT4 sparse TOPS
+- Media: dual VCN 5.0 (2× AV1/HEVC/H.264 encode/decode, AV1 B-frame support)
+- TDP: 300W, 1× 16-pin 12V-2x6
+- PCIe: Gen5 x16
+- Price: $1,299
+
+### Driver stack
+
+Already present on this machine:
+- Kernel 6.19.9 — amdgpu + VCN 5.0 support merged in mainline
+- Mesa 25.2.8 — VA-API encode/decode, RADV Vulkan Video for VCN 5.0
+
+ROCm install (for ML inference):
+```bash
+# ROCm 6.4.1+ required. Follow AMD's official repo:
+# https://rocm.docs.amd.com/projects/install-on-linux/en/latest/
+apt install rocm
+# Verify:
+rocminfo
+clinfo
+```
+
+Kernel parameters (add to GRUB):
+```
+iommu=pt amd_iommu=on amdgpu.runpm=0
+```
+
+### Use cases
+
+| Workload | Stack |
+|---|---|
+| ML inference (speech-engine) | Burn (CubeCL → ROCm) |
+| LLM inference (arqic) | vLLM (ROCm) |
+| FFmpeg transcode | VA-API via Mesa (`/dev/dri/renderD129`) |
+| DaVinci Resolve | OpenCL via ROCm (not officially supported on Linux — test needed) |
+
+### Optional: RTX PRO 2000 Blackwell (Resolve fallback)
+
+If Resolve does not work reliably on AMD/Linux, add an RTX PRO 2000
+Blackwell ($730, 70W, slot-powered, no power cable) as a dedicated
+Resolve card. 16 GB GDDR7, CUDA, 1× NVENC 9th gen.
 
 ```bash
 apt install -y linux-headers-$(uname -r) dkms
-apt install -y nvidia-driver-570  # or latest for Blackwell
+apt install -y nvidia-driver-570
 reboot
-nvidia-smi  # verify: RTX 6000, 96GB VRAM
-```
-
-### Xorg headless display
-
-```bash
-nvidia-xconfig --allow-empty-initial-configuration --use-display-device=None --virtual=1920x1080
-systemctl enable --now resolve-xorg.service
+nvidia-smi  # verify: RTX PRO 2000, 16GB VRAM
 ```
 
 ---
@@ -80,7 +114,22 @@ ffmpeg -vaapi_device /dev/dri/renderD128 \
   -c:a copy output.mp4
 ```
 
-### Linux — AV1 NVENC (when RTX 6000 arrives)
+### Linux — AV1 (AMD VA-API, R9700 VCN 5.0)
+
+Same `av1_vaapi` encoder, different render device. VCN 5.0 adds AV1
+B-frame support (`-bf 4`) for better compression.
+
+```bash
+ffmpeg -vaapi_device /dev/dri/renderD129 \
+  -i input.mov \
+  -vf 'format=p010le,hwupload' \
+  -c:v av1_vaapi -rc_mode VBR \
+  -b:v 15M -maxrate 17M -bufsize 30M \
+  -g 240 -bf 4 -tiles 2x2 -tile_groups 2 \
+  -c:a copy output.mp4
+```
+
+### Linux — AV1 NVENC (if RTX PRO 2000 installed)
 
 ```bash
 ffmpeg -hwaccel cuda -i input.mov \

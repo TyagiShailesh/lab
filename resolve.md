@@ -1,9 +1,31 @@
 # DaVinci Resolve
 
-Mac (editing) sends render jobs to Linux (lab, 192.168.1.10) with RTX 6000.
+Mac (editing) sends render jobs to Linux (lab, 192.168.1.10).
 Resolve sends render instructions, not media — both machines need the same file paths and a shared PostgreSQL database.
 
 **Requirements:** DaVinci Resolve Studio (same version, same plugins/LUTs/fonts on both machines).
+
+---
+
+## GPU Options for Linux Rendering
+
+| GPU | API | Official Linux support | Status |
+|---|---|---|---|
+| AMD Radeon AI PRO R9700 | OpenCL (ROCm) | No — Blackmagic only tests NVIDIA on Linux | Needs testing |
+| RTX PRO 2000 Blackwell | CUDA | Yes — officially supported | Fallback option ($730, 70W, slot-powered) |
+
+Blackmagic officially supports only NVIDIA (CUDA) on Linux. AMD works on
+Windows via OpenCL, and community reports confirm RDNA 1/2/3 works on Linux
+via ROCm OpenCL — but RDNA 4 (R9700) is unverified on Linux.
+
+**Plan:** Test Resolve with R9700 + ROCm OpenCL first. If it fails or is
+unreliable, add RTX PRO 2000 Blackwell as a dedicated Resolve card.
+
+### Resolve config for AMD (if R9700 works)
+
+In Resolve on Linux:
+- Preferences → Memory & GPU → **OpenCL**, select Radeon AI PRO R9700
+- AAC audio codec not supported on Linux — use PCM or FLAC for audio
 
 ---
 
@@ -11,7 +33,8 @@ Resolve sends render instructions, not media — both machines need the same fil
 
 ### DaVinci Resolve Studio 20.3.2
 
-Installed at `/opt/resolve`. Cannot launch until NVIDIA driver is installed.
+Installed at `/opt/resolve`. Cannot launch until a supported GPU driver is
+installed (NVIDIA proprietary or AMD ROCm OpenCL).
 
 ### Xorg + VNC
 
@@ -27,7 +50,7 @@ DISPLAY=:1 /opt/resolve/bin/resolve
 ```
 
 In Resolve on Linux:
-- Preferences → Memory & GPU → CUDA, select RTX 6000
+- Preferences → Memory & GPU → select GPU (OpenCL for AMD, CUDA for NVIDIA)
 - Preferences → Media Storage → add `/Volumes/media/video`
 - Preferences → Media Storage → cache: `/cache/resolve`
 - Connect to PostgreSQL (192.168.1.10, user: resolve)
@@ -82,7 +105,8 @@ HDR and SDR delivery from the same timeline — override output color space per 
 4. Select the Linux render node
 5. Start render
 
-Mac stays responsive. All effects (NR, color, Fusion, ResolveFX) render on the RTX 6000.
+Mac stays responsive. All effects (NR, color, Fusion, ResolveFX) render on
+the Linux GPU (R9700 via OpenCL, or RTX PRO 2000 via CUDA).
 
 ---
 
@@ -92,6 +116,8 @@ Mac stays responsive. All effects (NR, color, Fusion, ResolveFX) render on the R
 |---|---|
 | Render node not visible | Same network? Same DB? Restart Resolve on both |
 | Media offline on render node | Path mismatch — check `/Volumes/media` symlink |
-| Resolve won't start on Linux | DISPLAY=:1 set? Xorg running? NVIDIA driver loaded? |
+| Resolve won't start on Linux | DISPLAY=:1 set? Xorg running? GPU driver loaded? (amdgpu/ROCm or NVIDIA) |
+| AMD GPU not detected | Install ROCm OpenCL: `apt install rocm-opencl-runtime`. Verify with `clinfo` |
+| AAC audio fails on Linux | Use PCM or FLAC audio codec instead — AAC not supported on Linux |
 | glib errors on Ubuntu | Move Resolve's bundled glib to `/opt/resolve/libs/disabled/` |
 | SSD thermal throttling | Ensure M.2 heatsinks installed |
