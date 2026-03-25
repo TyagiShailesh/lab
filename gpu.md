@@ -1,23 +1,35 @@
 # GPU
 
-No discrete GPU installed yet.
+## Slot Layout
 
-## Current: Intel integrated (Arrow Lake UHD)
+Both GPUs in CPU-direct slots (PCIe 5.0 x8/x8 split mode). 3-slot spacing
+on the ProArt Z890 — both dual-slot cards fit with airflow gap between them.
+
+| Slot | Card | Mode | Bandwidth |
+|---|---|---|---|
+| PCIEX16_1 (CPU) | AMD Radeon AI PRO R9700 | PCIe 5.0 x8 | 16 GB/s |
+| PCIEX16_2 (CPU) | NVIDIA RTX PRO 2000 Blackwell | PCIe 5.0 x8 | 16 GB/s (card is natively x8) |
+
+x8 split loses no practical performance — inference and rendering are
+GPU-compute-bound, not PCIe-bound. SSD model loading is bottlenecked by the
+Samsung 9100 at 14.5 GB/s, well under the 16 GB/s x8 link.
+
+## Intel integrated (Arrow Lake UHD)
 
 - VA-API hardware encode via `/dev/dri/renderD128`
 - OpenVINO 2026.0.0 installed
 
-## Planned: AMD Radeon AI PRO R9700
+## AMD Radeon AI PRO R9700
 
-Primary discrete GPU. ASRock Creator variant (blower, 4× DP 2.1a, vapor
-chamber, multi-GPU airflow cutouts).
+Primary GPU — ML inference, LLM serving, FFmpeg transcode. ASRock Creator
+variant (blower, 4× DP 2.1a, vapor chamber, multi-GPU airflow cutouts).
 
 - Architecture: RDNA 4 (Navi 48), 4nm
 - VRAM: 32 GB GDDR6 (ECC), 256-bit, 640 GB/s
 - Compute: 48 TFLOPS FP32, 191 TFLOPS FP16 matrix, 1531 INT4 sparse TOPS
 - Media: dual VCN 5.0 (2× AV1/HEVC/H.264 encode/decode, AV1 B-frame support)
 - TDP: 300W, 1× 16-pin 12V-2x6
-- PCIe: Gen5 x16
+- PCIe: Gen5 x8 (in split mode)
 - Price: $1,299
 
 ### Driver stack
@@ -28,7 +40,7 @@ Already present on this machine:
 
 ROCm install (for ML inference):
 ```bash
-# ROCm 6.4.1+ required. Follow AMD's official repo:
+# ROCm 7.2.1 — RDNA 4 (gfx1201) supported since ROCm 6.4.1
 # https://rocm.docs.amd.com/projects/install-on-linux/en/latest/
 apt install rocm
 # Verify:
@@ -47,14 +59,22 @@ iommu=pt amd_iommu=on amdgpu.runpm=0
 |---|---|
 | ML inference (speech-engine) | Burn (CubeCL → ROCm) |
 | LLM inference (arqic) | vLLM (ROCm) |
-| FFmpeg transcode | VA-API via Mesa (`/dev/dri/renderD129`) |
-| DaVinci Resolve | OpenCL via ROCm (not officially supported on Linux — test needed) |
+| FFmpeg transcode | VA-API via Mesa |
+| DaVinci Resolve | OpenCL via ROCm (not officially supported on Linux — test first) |
 
-### Optional: RTX PRO 2000 Blackwell (Resolve fallback)
+## NVIDIA RTX PRO 2000 Blackwell
 
-If Resolve does not work reliably on AMD/Linux, add an RTX PRO 2000
-Blackwell ($730, 70W, slot-powered, no power cable) as a dedicated
-Resolve card. 16 GB GDDR7, CUDA, 1× NVENC 9th gen.
+Dedicated Resolve / CUDA card. 70W, slot-powered, no power cable.
+
+- Architecture: Blackwell (GB206), 5nm
+- CUDA cores: 4,352 / Tensor cores: 136 (Gen 5)
+- VRAM: 16 GB GDDR7 (ECC), 128-bit, 288 GB/s
+- Media: 1× NVENC 9th gen, 1× NVDEC 6th gen
+- TDP: 70W (slot-powered, no external cable)
+- PCIe: Gen5 x8 (native)
+- Price: $730
+
+### Driver install
 
 ```bash
 apt install -y linux-headers-$(uname -r) dkms
@@ -62,6 +82,14 @@ apt install -y nvidia-driver-570
 reboot
 nvidia-smi  # verify: RTX PRO 2000, 16GB VRAM
 ```
+
+### Use cases
+
+| Workload | Stack |
+|---|---|
+| DaVinci Resolve | CUDA (officially supported on Linux) |
+| Speech-engine (Candle, until Burn port) | CUDA |
+| FFmpeg occasional encode | NVENC 9th gen (AV1/HEVC/H.264) |
 
 ---
 

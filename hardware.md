@@ -7,7 +7,7 @@
 | Motherboard | ASUS ProArt Z890-CREATOR WIFI (Rev 1.xx) |
 | CPU | Intel Core Ultra 5 235 (Arrow Lake, 14C/14T, 3.6 GHz base / 4.8 GHz boost) |
 | RAM | 64 GB DDR5-5600 (2x 32 GB Micron CP32G64C40U5B, slots A1+B1, 2 slots empty) |
-| GPU | None (Intel integrated, Arrow Lake UHD) |
+| GPU | AMD Radeon AI PRO R9700 (32 GB, PCIEX16_1) + NVIDIA RTX PRO 2000 Blackwell (16 GB, PCIEX16_2) + Intel iGPU |
 | NPU | Intel Arrow Lake NPU |
 | Network | Marvell AQtion 10GbE + Intel 2.5GbE, bridged as br0 (192.168.1.10/24) |
 | Thunderbolt | 2x Thunderbolt 5 + 1x Thunderbolt 4 (USB Type-C) |
@@ -32,8 +32,8 @@
 
 | Slot | Type | Notes |
 |---|---|---|
-| PCIEX16_1 (CPU) | PCIe 5.0 x16 | Supports x16 or x8/x8 with PCIEX16_2 |
-| PCIEX16_2 (CPU) | PCIe 5.0 x16 | x8 when PCIEX16_1 is in x8/x8 mode |
+| PCIEX16_1 (CPU) | PCIe 5.0 x8 | AMD Radeon AI PRO R9700 (x8/x8 split mode) |
+| PCIEX16_2 (CPU) | PCIe 5.0 x8 | NVIDIA RTX PRO 2000 Blackwell (natively x8) |
 | PCIEX16 (chipset) | PCIe 4.0 x16 | x4 mode, disabled if M.2_5 is used |
 
 ## BIOS

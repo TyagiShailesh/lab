@@ -7,24 +7,21 @@ Resolve sends render instructions, not media — both machines need the same fil
 
 ---
 
-## GPU Options for Linux Rendering
+## GPU Setup
 
-| GPU | API | Official Linux support | Status |
+Both GPUs installed. RTX PRO 2000 is the primary Resolve GPU (CUDA,
+officially supported). R9700 available as secondary via OpenCL (test needed).
+
+| GPU | API | Official Linux support | Role |
 |---|---|---|---|
-| AMD Radeon AI PRO R9700 | OpenCL (ROCm) | No — Blackmagic only tests NVIDIA on Linux | Needs testing |
-| RTX PRO 2000 Blackwell | CUDA | Yes — officially supported | Fallback option ($730, 70W, slot-powered) |
+| RTX PRO 2000 Blackwell (PCIEX16_2) | CUDA | Yes | Primary Resolve GPU |
+| AMD Radeon AI PRO R9700 (PCIEX16_1) | OpenCL (ROCm) | No — community only | Secondary (test OpenCL, use for GPU effects scaling) |
 
-Blackmagic officially supports only NVIDIA (CUDA) on Linux. AMD works on
-Windows via OpenCL, and community reports confirm RDNA 1/2/3 works on Linux
-via ROCm OpenCL — but RDNA 4 (R9700) is unverified on Linux.
-
-**Plan:** Test Resolve with R9700 + ROCm OpenCL first. If it fails or is
-unreliable, add RTX PRO 2000 Blackwell as a dedicated Resolve card.
-
-### Resolve config for AMD (if R9700 works)
+### Resolve config
 
 In Resolve on Linux:
-- Preferences → Memory & GPU → **OpenCL**, select Radeon AI PRO R9700
+- Preferences → Memory & GPU → **CUDA**, select RTX PRO 2000
+- Optionally test OpenCL with R9700 as secondary GPU
 - AAC audio codec not supported on Linux — use PCM or FLAC for audio
 
 ---
@@ -50,7 +47,7 @@ DISPLAY=:1 /opt/resolve/bin/resolve
 ```
 
 In Resolve on Linux:
-- Preferences → Memory & GPU → select GPU (OpenCL for AMD, CUDA for NVIDIA)
+- Preferences → Memory & GPU → CUDA, select RTX PRO 2000
 - Preferences → Media Storage → add `/Volumes/media/video`
 - Preferences → Media Storage → cache: `/cache/resolve`
 - Connect to PostgreSQL (192.168.1.10, user: resolve)
@@ -116,8 +113,9 @@ the Linux GPU (R9700 via OpenCL, or RTX PRO 2000 via CUDA).
 |---|---|
 | Render node not visible | Same network? Same DB? Restart Resolve on both |
 | Media offline on render node | Path mismatch — check `/Volumes/media` symlink |
-| Resolve won't start on Linux | DISPLAY=:1 set? Xorg running? GPU driver loaded? (amdgpu/ROCm or NVIDIA) |
-| AMD GPU not detected | Install ROCm OpenCL: `apt install rocm-opencl-runtime`. Verify with `clinfo` |
+| Resolve won't start on Linux | DISPLAY=:1 set? Xorg running? NVIDIA driver loaded? (`nvidia-smi`) |
+| RTX PRO 2000 not detected | `nvidia-smi` — driver 570+ required. Reboot after install |
+| AMD GPU not detected in Resolve | Install ROCm OpenCL: `apt install rocm-opencl-runtime`. Verify with `clinfo` |
 | AAC audio fails on Linux | Use PCM or FLAC audio codec instead — AAC not supported on Linux |
 | glib errors on Ubuntu | Move Resolve's bundled glib to `/opt/resolve/libs/disabled/` |
 | SSD thermal throttling | Ensure M.2 heatsinks installed |
