@@ -4,7 +4,7 @@
 # bcachefs: https://github.com/koverstreet/bcachefs-tools/tags (latest tag)
 set -euo pipefail
 
-src=https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.19.9.tar.xz
+src=https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.19.10.tar.xz
 pkg=$(basename "$src" .tar.xz)
 kver=${pkg#linux-}
 
@@ -26,7 +26,18 @@ make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
 # BLK_DEV_INTEGRITY -> CRC64
 "$build"/scripts/config --file "$build/.config" \
   --enable CRYPTO_LZ4 --enable CRYPTO_LZ4HC --enable BLK_DEV_INTEGRITY \
-  --enable TCP_CONG_ADVANCED --enable TCP_CONG_BBR --enable NET_SCH_FQ
+  --enable TCP_CONG_ADVANCED --enable TCP_CONG_BBR --enable NET_SCH_FQ \
+  --module DRM_AMDGPU \
+  --enable DRM_AMDGPU_SI --enable DRM_AMDGPU_CIK --enable DRM_AMDGPU_USERPTR \
+  --enable HSA_AMD --enable HSA_AMD_SVM --enable HSA_AMD_P2P \
+  --enable DRM_AMD_DC --enable DRM_AMD_DC_FP --enable DRM_AMD_DC_SI \
+  --set-val HZ 1000 --enable HZ_1000 \
+  --enable NO_HZ_FULL \
+  --enable PREEMPT_DYNAMIC \
+  --enable CC_OPTIMIZE_FOR_PERFORMANCE \
+  --enable TRANSPARENT_HUGEPAGE \
+  --set-val IOMMU_DEFAULT_DMA_LAZY y \
+  --enable PERF_EVENTS_AMD_UNCORE
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
 
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- -j"$(nproc)" bzImage modules
