@@ -86,8 +86,10 @@ Shifting from NVIDIA-only to dual-vendor AMD+NVIDIA:
 - [x] renderD128 (R9700), renderD129 (RTX PRO 2000) — i915 blacklisted
 - [x] Zero failed systemd services (removed TB tune/rps services)
 - [x] All mounts stable (PARTUUID, by-id, UUID)
-- [x] DaVinci Resolve Studio 20 running on NVIDIA CUDA via Xorg+x11vnc on :2 (port 5902)
-- [x] Resolve sees both RTX PRO 2000 (CUDA) and R9700 (OpenCL) — CUDA primary
+- [x] DaVinci Resolve Studio 20 licensed and configured on NVIDIA CUDA
+- [x] Resolve sees RTX PRO 2000 (CUDA) — GPU config, media paths, PostgreSQL all set
+- [x] Remote rendering: Mac sees Linux node, but job pickup is unreliable — abandoned
+- [x] Resolve rendering stays on Mac — Linux server is for ML inference, not Resolve
 
 ## Next TODO
 
