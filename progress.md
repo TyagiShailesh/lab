@@ -8,92 +8,103 @@ Current state and next steps for the lab server build-out.
 
 | Component | Slot | Status |
 |---|---|---|
-| AMD Radeon AI PRO R9700 (32 GB) | PCIEX16_1 (CPU, x8 split) | **Working** — amdgpu loaded, renderD129, ROCm 7.2.1 |
-| NVIDIA RTX PRO 2000 Blackwell (16 GB) | PCIEX16_2 (CPU, x8 split) | **Working** — nvidia-smi OK, Driver 595.58.03, CUDA 13.2, renderD130 |
+| AMD Radeon AI PRO R9700 (32 GB) | PCIEX16_1 (CPU, x8 split) | **Working** — amdgpu loaded, ROCm 7.2.1, PyTorch ROCm 2.11, vLLM, Burn |
+| NVIDIA RTX PRO 2000 Blackwell (16 GB) | PCIEX16_2 (CPU, x8 split) | **Working** — Driver 595.58.03, CUDA 13.2, vLLM, ollama |
 | Samsung 9100 Pro 1TB | M.2_1 (Gen5, CPU) | **Working** — XFS, /cache, ~9.5 GB/s read |
 
-## Current kernel: 6.19.10
+## Benchmarks (2026-03-26)
 
-- amdgpu=m — working, firmware loads from .bin.zst (FW_LOADER_COMPRESS_ZSTD=y)
-- NVIDIA open kernel modules — building now (from open-gpu-kernel-modules tag 595.58.03)
-- bcachefs OOT module — working
-- thunderbolt_net — using in-tree driver (OOT module removed)
+### FFmpeg AV1 encode (4K60 HEVC 10-bit → AV1, 30 Mbps target)
 
-## NVIDIA driver status
+| GPU | Encoder | FPS | Speed | Notes |
+|---|---|---|---|---|
+| NVIDIA RTX PRO 2000 | NVENC (custom FFmpeg) | 154 | 2.57x | Fastest single-stream |
+| AMD R9700 | VA-API (Mesa) | 130 | 2.16x | VCN 5.0 HW, decode-limited |
+| Intel iGPU | VA-API (Intel media) | 130 | 2.16x | Matches AMD |
+| AMD R9700 | AMF (Vulkan/RADV) | 55 | 0.92x | Falls back to compute shaders, not VCN |
 
-Previous attempts to get NVIDIA working:
-1. `apt install cuda` installed CUDA 13.2 toolkit + nvidia-dkms-open 595.58.03
-2. DKMS failed: kernel 6.19.10 removed `del_timer_sync` (renamed to `timer_delete_sync`), DKMS conftest couldn't find it without Module.symvers
-3. Built Module.symvers manually, DKMS compiled but `module_layout` CRC mismatch — DKMS built against downloaded kernel source, not the actual running kernel built by build-kernel.sh
-4. Solution: build-kernel.sh now builds NVIDIA open kernel modules directly from source alongside the kernel, using the same build tree. No DKMS on target.
+AMD VA-API decode engine at 100% is the bottleneck — encoder is idle waiting for frames.
+AMF on Linux/RADV doesn't use VCN hardware encoder, falls back to shader compute.
+Navi 48 has 1 VCN 5.0 engine (not 2 as some specs claimed).
 
-**Next:** kernel build running now. After it completes:
-1. `./install-kernel.sh images/linux-6.19.10.tar.zst` — installs kernel + all modules + NVIDIA firmware
-2. Remove nvidia-dkms-open package (keep only userspace libs from cuda metapackage)
-3. Reboot
-4. Verify: `nvidia-smi`, `rocminfo`, both GPUs in `/dev/dri/`
+### LLM inference (Mistral 7B)
 
-## Driver stack installed
+| GPU | Engine | Model format | tok/s | Notes |
+|---|---|---|---|---|
+| NVIDIA RTX PRO 2000 | ollama (CUDA) | Q4_K_M GGUF | 62 | Best on NVIDIA — llama.cpp is lean |
+| AMD R9700 | vLLM (ROCm, built from source) | FP16 | 35 | No FlashAttention for gfx1201, ROCM_ATTN fallback |
+| NVIDIA RTX PRO 2000 | vLLM (CUDA Docker) | AWQ Q4 | 6.4 | Memory-starved on 16 GB |
+| AMD R9700 | ollama (CPU fallback) | Q4_K_M GGUF | 15.5 | Ollama doesn't support RDNA 4 ROCm |
+
+vLLM ROCm Docker images only support MI300X (gfx942). Built vLLM from source
+with `VLLM_TARGET_DEVICE=rocm PYTORCH_ROCM_ARCH=gfx1201`. Required patching
+`vllm/platforms/__init__.py` to disable CUDA plugin when ROCm PyTorch detected.
+
+### Burn + CubeCL matmul (FP32, synchronized)
+
+| Size | Time/iter | GFLOPS | % of 48 TFLOPS |
+|---|---|---|---|
+| 1024x1024 | 0.6 ms | 3,347 | 7% |
+| 2048x2048 | 2.7 ms | 6,361 | 13% |
+| 4096x4096 | 15.7 ms | 8,744 | 18% |
+
+**Burn → CubeCL → HIP → R9700 works.** Required patching `cubecl-hip-sys`
+to add ROCm 7.2 (HIP 53211) bindings — copied from 52802 (backwards compatible).
+CubeCL generates its own matmul kernel, not rocBLAS — 18% of peak is expected
+for a generic kernel. rocBLAS would get 35-40 TFLOPS. FP16 would be 4x faster.
+
+## RDNA 4 Linux ecosystem status (2026-03-26)
+
+| Tool | RDNA 4 support | Notes |
+|---|---|---|
+| amdgpu kernel driver | Yes | Mainline since 6.14 |
+| Mesa VA-API | Yes | VCN 5.0 encode/decode |
+| Mesa RADV Vulkan | Yes | Full Vulkan Video |
+| ROCm 7.2.1 | Yes | gfx1201 supported |
+| PyTorch ROCm | Yes | torch 2.11+rocm7.1 |
+| vLLM Docker | No | MI300X only, gfx1201 KeyError |
+| vLLM from source | Yes (patched) | Dual-platform conflict fix needed |
+| ollama ROCm | No | Only CUDA backend detected |
+| Burn/CubeCL | Yes (patched) | cubecl-hip-sys needs ROCm 7.2 bindings |
+| AMF (proprietary) | Partial | Runtime works but uses compute shaders, not VCN |
+| FlashAttention ROCm | No | Not available for gfx1201 |
+
+## Driver stack
 
 | Stack | Version | Location |
 |---|---|---|
 | CUDA toolkit | 13.2 | /usr/local/cuda |
 | ROCm | 7.2.1 | /opt/rocm-7.2.1 |
 | Mesa | 25.2.8 | system (VA-API, Vulkan) |
-| amdgpu firmware | upstream linux-firmware | /lib/firmware/amdgpu/ |
+| PyTorch ROCm | 2.11.0+rocm7.1 | pip (system) |
+| vLLM ROCm | 0.1.dev (from source) | pip (system) |
+| AMF runtime | 25.20 | /opt/amf |
+| FFmpeg (custom) | latest git | /usr/local/bin (VA-API + NVENC + AMF) |
 
-## Boot fixes applied
+## Boot config
 
-| Issue | Fix |
+| Item | Detail |
 |---|---|
-| NVMe device reordering on new drive insert | EFI boot entries use `root=PARTUUID=204dd2f7-...` instead of `/dev/nvme0n1p2` |
-| bcachefs mount failure after NVMe shuffle | Service uses `/dev/disk/by-id/nvme-WD_BLACK_SN850X_HS_2000GB_24364L800813` instead of `/dev/nvme1n1` |
-| fstab pointing to old device path | Fixed — only EFI partition by UUID |
-| install-kernel.sh wrong disk | Auto-discovers boot disk by PARTUUID, no argument needed |
-
-## Samsung 9100 Pro performance
-
-Platform-limited by Arrow Lake root port MaxPayload 256B (device supports 512B).
-
-| Test | Speed | Notes |
-|---|---|---|
-| Sequential read (fio, QD64, 1M, 8 threads) | 9.5 GB/s | Rated 14.7 GB/s — capped by 256B MPS |
-| Sequential write (fio, QD64, 1M, 8 threads) | 10.6 GB/s | Close to rated 13.0 GB/s |
-| PCIe link | Gen5 x4, 32 GT/s | Full speed negotiated |
-
-## Storage layout
-
-| Mount | Device | Filesystem | Purpose |
-|---|---|---|---|
-| `/` | Samsung 990 Pro 2TB (PARTUUID) | XFS | Root |
-| `/boot/efi` | Samsung 990 Pro 2TB p1 (UUID) | vfat | EFI |
-| `/store` | WD SN850X + 2x Seagate Exos (by-id) | bcachefs | Media, data |
-| `/cache` | Samsung 9100 Pro 1TB (by-id) | XFS | Models, Resolve cache, vLLM |
-
-## Strategic direction
-
-Shifting from NVIDIA-only to dual-vendor AMD+NVIDIA:
-- **R9700**: primary GPU for ML inference (Burn/ROCm), LLM serving (vLLM/ROCm), FFmpeg transcode (VA-API VCN 5.0)
-- **RTX PRO 2000**: DaVinci Resolve (CUDA, officially supported), speech-engine on Candle/CUDA until Burn port
-- **speech-engine**: porting from Candle to Burn (CubeCL) — see `/root/code/ws/speech-engine/docs/burn-port.md`
-- **arqic**: adding AMD backend behind existing traits — see `/root/code/ws/arqic/docs/amd-backend.md`
-- Lab (R9700) → DC (MI300X/MI350X) — same ROCm stack
+| EFI boot | PARTUUID-based, no device path dependency |
+| bcachefs | by-id mount, stable across NVMe reordering |
+| i915 | Blacklisted (Resolve needed NVIDIA as sole display GPU) |
+| fstab | UUID/by-id only |
 
 ## Completed (2026-03-26)
 
-- [x] nvidia-smi works — RTX PRO 2000, Driver 595.58.03, CUDA 13.2
-- [x] rocminfo shows R9700 (gfx1201)
-- [x] renderD128 (R9700), renderD129 (RTX PRO 2000) — i915 blacklisted
-- [x] Zero failed systemd services (removed TB tune/rps services)
+- [x] Both GPUs working — nvidia-smi + rocminfo
 - [x] All mounts stable (PARTUUID, by-id, UUID)
-- [x] DaVinci Resolve Studio 20 licensed and configured on NVIDIA CUDA
-- [x] Resolve sees RTX PRO 2000 (CUDA) — GPU config, media paths, PostgreSQL all set
-- [x] Remote rendering: Mac sees Linux node, but job pickup is unreliable — abandoned
-- [x] Resolve rendering stays on Mac — Linux server is for ML inference, not Resolve
+- [x] FFmpeg AV1 encode tested on all 3 GPUs
+- [x] vLLM ROCm built from source, running on R9700 (35 tok/s Mistral 7B)
+- [x] Burn + CubeCL + ROCm compiled and running on R9700 (8.7 TFLOPS matmul)
+- [x] DaVinci Resolve removed (rendering stays on Mac)
+- [x] Custom FFmpeg with VA-API + NVENC + AMF built
 
 ## Next TODO
 
-- [ ] Test FFmpeg AV1 encode on R9700 VA-API
-- [ ] Test vLLM on R9700 with small model
-- [ ] Run speech-engine on RTX PRO 2000 (Candle/CUDA) to verify baseline before Burn port
-- [ ] Begin Burn port of speech-engine (Whisper first)
+- [ ] Burn port: add rocBLAS dispatch for matmul (3x perf gain)
+- [ ] Burn port: test FP16 matmul (4x perf gain)
+- [ ] Begin speech-engine Burn port (Whisper first)
+- [ ] Run speech-engine on RTX PRO 2000 (Candle/CUDA) to verify baseline
+- [ ] Upstream cubecl-hip-sys ROCm 7.2 bindings patch to tracel-ai/cubecl
+- [ ] Upstream vLLM dual-platform fix
