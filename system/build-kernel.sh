@@ -108,13 +108,11 @@ make -C src/nvidia-open KERNEL_UNAME="$kver" SYSSRC="$(pwd)/$build" SYSOUT="$(pw
 nvidia_dest="$staging/usr/lib/modules/$kver/kernel/drivers/video"
 mkdir -p "$nvidia_dest"
 for mod in nvidia nvidia-modeset nvidia-drm nvidia-uvm nvidia-peermem; do
-  cp "src/nvidia-open/$mod/$mod.ko" "$nvidia_dest"/
+  cp "src/nvidia-open/kernel-open/$mod.ko" "$nvidia_dest"/
 done
 
-# NVIDIA firmware (GSP)
-nvidia_fw_dest="$staging/usr/lib/firmware/nvidia/$nvidia_tag"
-mkdir -p "$nvidia_fw_dest"
-cp src/nvidia-open/firmware/gsp_*.bin "$nvidia_fw_dest"/
+# NVIDIA GSP firmware ships with the userspace driver package (apt install cuda).
+# Already at /lib/firmware/nvidia/<version>/gsp_*.bin on target — not in open-gpu-kernel-modules repo.
 
 # --- Finalize modules ---
 find "$staging"/usr/lib/modules -name "build" -type l -delete
@@ -132,7 +130,6 @@ fail=0
 grep -q bcachefs "$staging/usr/lib/modules/$kver/modules.dep" && echo "OK: bcachefs in modules.dep" || { echo "FAIL: bcachefs not in modules.dep"; fail=1; }
 [ -f "$nvidia_dest/nvidia.ko" ] && echo "OK: nvidia.ko" || { echo "FAIL: nvidia.ko missing"; fail=1; }
 [ -f "$nvidia_dest/nvidia-drm.ko" ] && echo "OK: nvidia-drm.ko" || { echo "FAIL: nvidia-drm.ko missing"; fail=1; }
-[ -f "$nvidia_fw_dest/gsp_ga10x.bin" ] && echo "OK: nvidia firmware" || { echo "FAIL: nvidia firmware missing"; fail=1; }
 [ "$fail" -eq 1 ] && { echo "FATAL: verification failed"; exit 1; }
 
 # --- Create tarball ---
