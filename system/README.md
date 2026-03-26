@@ -212,11 +212,15 @@ I/O schedulers via udev: `mq-deadline` for HDDs, `none` for NVMe. No swap.
 
 ## Block devices
 
+NVMe device numbering changes depending on which drives are installed.
+All mount paths use stable identifiers (PARTUUID, UUID, or `/dev/disk/by-id/`).
+
 ```
 sda         12.7T  bcachefs  /store     ST14000NM000J-2TX103      sata
 sdb         12.7T  bcachefs             ST14000NM001G-2KJ103      sata
-nvme0n1      1.8T                       Samsung SSD 990 PRO 2TB   nvme
-├─nvme0n1p1    1G  vfat      /boot/efi
-└─nvme0n1p2  1.8T  xfs       /
-nvme1n1      1.8T  bcachefs             WD_BLACK SN850X HS 2000GB nvme
+nvme?n1     931.5G xfs       /cache     Samsung SSD 9100 PRO 1TB  nvme  (M.2_1, Gen5 CPU)
+nvme?n1      1.8T                       Samsung SSD 990 PRO 2TB   nvme  (M.2_2, Gen4 chipset)
+├─p1           1G  vfat      /boot/efi
+└─p2         1.8T  xfs       /
+nvme?n1      1.8T  bcachefs             WD_BLACK SN850X HS 2000GB nvme  (M.2_4, Gen4 chipset)
 ```

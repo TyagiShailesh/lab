@@ -82,8 +82,6 @@ cp -a "$build"/include "$kbuild"/
 cp -a "$build"/arch/x86/include "$kbuild"/arch/x86/include 2>/dev/null || true
 mkdir -p "$kbuild"/arch/x86
 cp "$build"/arch/x86/Makefile "$kbuild"/arch/x86/ 2>/dev/null || true
-# Symlink build dir so OOT module builds find it
-ln -sf /usr/src/linux-"$kver" "$staging"/usr/lib/modules/"$kver"/build
 
 # --- bcachefs out-of-tree module ---
 make -C src/bcachefs-tools install_dkms DESTDIR="$(pwd)/build/dkms-staging" PREFIX=/usr
