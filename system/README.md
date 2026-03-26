@@ -163,21 +163,7 @@ Bridge managed by netplan → systemd-networkd. Static IP, jumbo frames.
 
 ### Thunderbolt networking
 
-Standard in-tree `thunderbolt_net` driver.
-
-Rear I/O USB-C ports (from manual p.30):
-- **Port 2** — Thunderbolt 5 (Barlow Ridge, domain1, PCI `87:00.0`) — 80 Gbps
-- **Port 10** — Thunderbolt 4 (Meteor Lake PCH, domain0, PCI `00:0d.2`) — 40 Gbps
-
-Previously ran a patched OOT driver (page_pool RX, 1024-entry ring) that achieved ~41 Gbps TX / ~30 Gbps RX on iperf3. Removed — the source was in `thunderbolt_net/` (commit history has it) and can be restored from git if needed. The in-tree driver is sufficient (~20 Gbps).
-
-#### Tuning (persistent via `thunderbolt-tune.service`)
-
-```
-IRQ pinning:  RX → P-core 0 (5 GHz), TX → P-core 1
-RPS:          all 14 cores (3fff), 4096 flow entries
-NAPI:         busy-poll (defer_hard_irqs=2, gro_flush_timeout=200000)
-```
+Standard in-tree `thunderbolt_net` driver. See [tb.md](tb.md) for hardware details, performance data, and tuning.
 
 ### WireGuard
 
