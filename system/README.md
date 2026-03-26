@@ -163,22 +163,13 @@ Bridge managed by netplan → systemd-networkd. Static IP, jumbo frames.
 
 ### Thunderbolt networking
 
-Standard in-tree `thunderbolt_net` driver (no longer patched OOT).
+Standard in-tree `thunderbolt_net` driver.
 
 Rear I/O USB-C ports (from manual p.30):
 - **Port 2** — Thunderbolt 5 (Barlow Ridge, domain1, PCI `87:00.0`) — 80 Gbps
 - **Port 10** — Thunderbolt 4 (Meteor Lake PCH, domain0, PCI `00:0d.2`) — 40 Gbps
 
-Measured throughput (iperf3, TB5 port, Mac connected):
-- **TX (lab→Mac):** ~41 Gbps / 5.1 GB/s (single core TX bottleneck)
-- **RX (Mac→lab):** ~30 Gbps / 3.75 GB/s (single core NAPI poll bottleneck)
-
-The caps are a **driver limitation**, not hardware. The driver uses a single TX/RX DMA ring pair — one CPU core handles all packets. The Barlow Ridge NHI supports up to 1023 HopIDs and 16 MSI-X vectors, but:
-- **Multi-TX ring** (Lab→Mac improvement): feasible without protocol changes (~200 LOC), but Lab→Mac is already fast enough for serving files
-- **Multi-RX ring** (Mac→Lab improvement): requires USB4NET protocol changes that would break macOS compatibility — not viable
-- **RPS/busy-poll tuning**: tested, no improvement for single-flow RX (work happens in NAPI before RPS)
-
-For backups (Mac→Lab), the 3.75 GB/s RX throughput is adequate — Mac SSD sustained read and SMB overhead are comparable bottlenecks.
+Previously ran a patched OOT driver (page_pool RX, 1024-entry ring) that achieved ~41 Gbps TX / ~30 Gbps RX on iperf3. Removed — the source was in `thunderbolt_net/` (commit history has it) and can be restored from git if needed. The in-tree driver is sufficient (~20 Gbps).
 
 #### Tuning (persistent via `thunderbolt-tune.service`)
 
