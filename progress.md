@@ -8,9 +8,9 @@ Current state and next steps for the lab server build-out.
 
 | Component | Slot | Status |
 |---|---|---|
-| AMD Radeon AI PRO R9700 (32 GB) | PCIEX16_1 (CPU, x8 split) | amdgpu loaded, renderD129, ROCm 7.2.1 installed |
-| NVIDIA RTX PRO 2000 Blackwell (16 GB) | PCIEX16_2 (CPU, x8 split) | CUDA 13.2 toolkit installed, driver module NOT loading yet |
-| Samsung 9100 Pro 1TB | M.2_1 (Gen5, CPU) | Formatted XFS, mounted at /cache, fstab entry added |
+| AMD Radeon AI PRO R9700 (32 GB) | PCIEX16_1 (CPU, x8 split) | **Working** — amdgpu loaded, renderD129, ROCm 7.2.1 |
+| NVIDIA RTX PRO 2000 Blackwell (16 GB) | PCIEX16_2 (CPU, x8 split) | **Working** — nvidia-smi OK, Driver 595.58.03, CUDA 13.2, renderD130 |
+| Samsung 9100 Pro 1TB | M.2_1 (Gen5, CPU) | **Working** — XFS, /cache, ~9.5 GB/s read |
 
 ## Current kernel: 6.19.10
 
@@ -79,13 +79,18 @@ Shifting from NVIDIA-only to dual-vendor AMD+NVIDIA:
 - **arqic**: adding AMD backend behind existing traits — see `/root/code/ws/arqic/docs/amd-backend.md`
 - Lab (R9700) → DC (MI300X/MI350X) — same ROCm stack
 
-## After reboot TODO
+## Completed (2026-03-26)
 
-- [ ] Verify `nvidia-smi` works (RTX PRO 2000 detected)
-- [ ] Verify `rocminfo` shows R9700 (gfx1201)
-- [ ] Verify `/dev/dri/renderD128` (iGPU), `renderD129` (R9700), `renderD130` (RTX PRO 2000)
-- [ ] Remove `nvidia-dkms-open` package if still installed (`apt remove --purge nvidia-dkms-open`)
+- [x] nvidia-smi works — RTX PRO 2000, Driver 595.58.03, CUDA 13.2
+- [x] rocminfo shows R9700 (gfx1201)
+- [x] renderD128 (iGPU), renderD129 (R9700), renderD130 (RTX PRO 2000)
+- [x] Zero failed systemd services (removed TB tune/rps services)
+- [x] All mounts stable (PARTUUID, by-id, UUID)
+
+## Next TODO
+
 - [ ] Test DaVinci Resolve launch via VNC
 - [ ] Test FFmpeg AV1 encode on R9700 VA-API
 - [ ] Test vLLM on R9700 with small model
 - [ ] Run speech-engine on RTX PRO 2000 (Candle/CUDA) to verify baseline before Burn port
+- [ ] Begin Burn port of speech-engine (Whisper first)
