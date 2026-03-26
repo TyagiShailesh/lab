@@ -163,7 +163,7 @@ Bridge managed by netplan → systemd-networkd. Static IP, jumbo frames.
 
 ### Thunderbolt networking
 
-Patched `thunderbolt_net` driver with page_pool RX and 1024-entry ring (source in `thunderbolt_net/`). Built as out-of-tree module alongside bcachefs in `build-kernel.sh`.
+Standard in-tree `thunderbolt_net` driver (no longer patched OOT).
 
 Rear I/O USB-C ports (from manual p.30):
 - **Port 2** — Thunderbolt 5 (Barlow Ridge, domain1, PCI `87:00.0`) — 80 Gbps
