@@ -95,12 +95,25 @@ The module and tools are built inside `build-kernel.sh` as part of the kernel ta
 
 The target system never needs a compiler or DKMS — everything is pre-built.
 
+### NVIDIA open kernel modules
+
+Pre-built from [NVIDIA/open-gpu-kernel-modules](https://github.com/NVIDIA/open-gpu-kernel-modules) at a pinned tag matching the userspace driver version on target. Built with the kernel's own IBT/CET settings — **not** with DKMS's `CONFIG_X86_KERNEL_IBT=""` hack that disables IBT and produces crashy modules.
+
+| | |
+|---|---|
+| Modules | `nvidia.ko`, `nvidia-modeset.ko`, `nvidia-drm.ko`, `nvidia-uvm.ko`, `nvidia-peermem.ko` |
+| Location | `/usr/lib/modules/<kver>/kernel/drivers/video/` |
+| Firmware | `/usr/lib/firmware/nvidia/<version>/gsp_*.bin` |
+| Version | Pinned tag in `build-kernel.sh` — must match `libnvidia-compute` etc. on target |
+
+Target must have `nvidia-dkms-open` removed (only keep userspace libs from `cuda` metapackage).
+
 ### Build pipeline
 
 All build scripts live in this directory (`system/`).
 
 ```
-build-kernel.sh     → downloads kernel source, builds bzImage + modules + bcachefs OOT, creates .tar.zst
+build-kernel.sh     → downloads kernel source, builds bzImage + modules + bcachefs + NVIDIA OOT, creates .tar.zst
 install-kernel.sh   → extracts tarball to target disk, creates EFI boot entry, runs depmod
 build-rootfs.sh     → builds Ubuntu 24.04 minimal rootfs tarball (base image)
 install-rootfs.sh   → wipes disk, partitions, installs rootfs (DESTRUCTIVE)
@@ -131,7 +144,7 @@ config              → kernel .config (back up before modifying)
 ./install-kernel.sh images/linux-<version>.tar.zst /dev/nvme0n1
 ```
 
-`build-kernel.sh` enables `CRYPTO_LZ4`, `CRYPTO_LZ4HC`, `BLK_DEV_INTEGRITY` (bcachefs deps) and `TCP_CONG_BBR`, `NET_SCH_FQ` (BBR) in the config, then builds the kernel, bcachefs module, and userspace tools into a single tarball. Always update to the latest stable kernel and bcachefs-tools tag before building.
+`build-kernel.sh` enables `CRYPTO_LZ4`, `CRYPTO_LZ4HC`, `BLK_DEV_INTEGRITY` (bcachefs deps) and `TCP_CONG_BBR`, `NET_SCH_FQ` (BBR) in the config, then builds the kernel, bcachefs module, NVIDIA open kernel modules, and userspace tools into a single tarball. Always update to the latest stable kernel, bcachefs-tools tag, and NVIDIA tag before building.
 
 `install-kernel.sh` extracts to target, copies bzImage to EFI partition, creates/updates EFI boot entry via `efibootmgr`, and ensures `modules-load.d/bcachefs.conf` exists.
 
