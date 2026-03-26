@@ -48,6 +48,18 @@ mkdir -p "$staging/boot" "$staging/usr"
 cp "$build"/arch/x86_64/boot/bzImage "$staging"/boot/$pkg
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- INSTALL_HDR_PATH="$staging"/usr headers_install
 
+# --- Kernel build dir for DKMS (Module.symvers + config + scripts) ---
+kbuild="$staging/usr/src/linux-$kver"
+mkdir -p "$kbuild"
+cp "$build"/Module.symvers "$build"/.config "$build"/Makefile "$kbuild"/
+cp -a "$build"/scripts "$kbuild"/
+cp -a "$build"/include "$kbuild"/
+cp -a "$build"/arch/x86/include "$kbuild"/arch/x86/include 2>/dev/null || true
+mkdir -p "$kbuild"/arch/x86
+cp "$build"/arch/x86/Makefile "$kbuild"/arch/x86/ 2>/dev/null || true
+# Symlink build dir so DKMS finds it
+ln -sf /usr/src/linux-"$kver" "$staging"/usr/lib/modules/"$kver"/build
+
 # --- bcachefs out-of-tree module ---
 bcachefs_dir="$build/bcachefs-tools"
 git clone --depth 1 --branch "$bcachefs_tag" "$bcachefs_repo" "$bcachefs_dir"

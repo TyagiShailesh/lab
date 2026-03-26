@@ -34,13 +34,12 @@ variant (blower, 4× DP 2.1a, vapor chamber, multi-GPU airflow cutouts).
 
 ### Driver stack
 
-Already present on this machine:
-- Kernel 6.19.9 — amdgpu + VCN 5.0 support merged in mainline
-- Mesa 25.2.8 — VA-API encode/decode, RADV Vulkan Video for VCN 5.0
+- Kernel: amdgpu built as module (mainline, RDNA 4 supported)
+- Mesa: VA-API encode/decode, RADV Vulkan Video for VCN 5.0
 
 ROCm install (for ML inference):
 ```bash
-# ROCm 7.2.1 — RDNA 4 (gfx1201) supported since ROCm 6.4.1
+# Follow latest instructions at:
 # https://rocm.docs.amd.com/projects/install-on-linux/en/latest/
 apt install rocm
 # Verify:
@@ -76,11 +75,17 @@ Dedicated Resolve / CUDA card. 70W, slot-powered, no power cable.
 
 ### Driver install
 
+Install from NVIDIA's official CUDA repo (not Ubuntu's apt defaults):
 ```bash
-apt install -y linux-headers-$(uname -r) dkms
-apt install -y nvidia-driver-570
-reboot
-nvidia-smi  # verify: RTX PRO 2000, 16GB VRAM
+# Latest CUDA repo setup: https://developer.nvidia.com/cuda-downloads
+# Select: Linux → x86_64 → Ubuntu → 24.04 → deb (network)
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+dpkg -i cuda-keyring_1.1-1_all.deb
+apt update
+apt install -y cuda
+# Verify:
+nvidia-smi
+nvcc --version
 ```
 
 ### Use cases

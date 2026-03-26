@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-[ $# -eq 2 ] || { echo "Usage: $0 <kernel-tarball> <disk>"; exit 1; }
+[ $# -ge 1 ] || { echo "Usage: $0 <kernel-tarball> [disk]"; exit 1; }
 
 kernel="$1"
-disk="$2"
 
+# Find boot disk by root PARTUUID (stable across NVMe reordering)
+ROOT_PARTUUID="204dd2f7-381a-47a8-bc8d-c2dff520e914"
+root_part=$(blkid -t PARTUUID="$ROOT_PARTUUID" -o device 2>/dev/null) \
+  || { echo "FATAL: cannot find root partition by PARTUUID=$ROOT_PARTUUID"; exit 1; }
+disk=${root_part%p[0-9]*}  # strip partition suffix (e.g. /dev/nvme1n1p2 → /dev/nvme1n1)
 p=${disk}$([[ "$disk" =~ nvme ]] && echo p || echo "")
+
+echo "Root partition: $root_part (disk: $disk)"
 mount ${p}2 /mnt
 mkdir -p /mnt/boot/efi
 mount ${p}1 /mnt/boot/efi

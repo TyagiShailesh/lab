@@ -13,14 +13,14 @@
 | Thunderbolt | 2x Thunderbolt 5 + 1x Thunderbolt 4 (USB Type-C) |
 | WiFi | Wi-Fi 7 (802.11be) 2x2 + Bluetooth 5.4 |
 | WireGuard | wg0 (10.0.0.1/30) |
-| Kernel | 6.19.9 (PREEMPT_DYNAMIC) |
+| Kernel | 6.19.10 (PREEMPT_DYNAMIC) |
 | OS | Ubuntu (XFS root) |
 
 ## Slots and Drives
 
 | Slot | Drive | Model | Size | Role | Filesystem | Mount |
 |---|---|---|---|---|---|---|
-| M.2_1 (Gen5, CPU) | — | — | — | Empty | — | — |
+| M.2_1 (Gen5, CPU) | Samsung 9100 Pro | Samsung SSD 9100 PRO 1TB (S7YENJ0L200013T) | 1 TB | Cache (models, Resolve, vLLM) | XFS | `/cache` |
 | M.2_2 (Gen4, chipset) | Samsung 990 Pro | Samsung SSD 990 PRO 2TB (S7KHNU0Y517886B) | 2 TB | Boot | XFS (root) + vfat (EFI) | `/` + `/boot/efi` |
 | M.2_3 (Gen4, chipset) | — | — | — | Empty | — | — |
 | M.2_4 (Gen4, chipset) | WD Black SN850X | WD_BLACK SN850X HS 2000GB (24364L800813) | 2 TB | bcachefs cache (label: ssd) | bcachefs | `/data`, `/store` |
@@ -38,6 +38,6 @@
 
 ## BIOS
 
-Current: **1901**. Latest: **3002** (2026-01-30).
+Current: **3002** (2026-01-30).
 Firmware at `/store/data/asus/`.
 User manual: `/store/data/asus/E27671_ProArt_Z890-CREATOR_WIFI_EM_V4_WEB.pdf`
