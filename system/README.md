@@ -27,18 +27,18 @@ Custom-compiled, **not** from Ubuntu packages. EFISTUB boot — **no GRUB, no in
 
 | | |
 |---|---|
-| Running | 6.19.9 (`SMP PREEMPT_DYNAMIC`, built as root@nas) |
-| Fallback | 6.19.6 |
+| Running | 6.19.10 (`SMP PREEMPT_DYNAMIC`, built as root@nas) |
+| Fallback | 6.19.9 |
 | Boot | EFISTUB direct — UEFI firmware loads bzImage, no bootloader |
-| cmdline | `root=/dev/nvme0n1p2 rw` |
+| cmdline | `root=PARTUUID=204dd2f7-381a-47a8-bc8d-c2dff520e914 rw` |
 | Build pipeline | `system/` (this directory) |
 
 ### Boot sequence
 
 ```
 UEFI firmware
-  └── EFISTUB: \linux-6.19.9 on EFI partition
-        └── cmdline: root=/dev/nvme0n1p2 rw
+  └── EFISTUB: \linux-6.19.10 on EFI partition
+        └── cmdline: root=PARTUUID=204dd2f7-... rw
               └── Kernel boots directly (monolithic, no initramfs)
                     └── XFS root mounted (built-in)
                           └── systemd starts
@@ -48,8 +48,8 @@ UEFI firmware
 ### EFI boot entries
 
 ```
-Boot0005* Linux 6.19.9  → \linux-6.19.9   (current)
-Boot0001* Linux 6.19.6  → \linux-6.19.6   (fallback)
+Boot0005* Linux 6.19.10 → \linux-6.19.10  (current)
+Boot0001* Linux 6.19.9  → \linux-6.19.9   (fallback)
 ```
 
 Kernel images live directly on the EFI partition (`/boot/efi/`). Managed by `efibootmgr`.
@@ -113,22 +113,25 @@ Target must have `nvidia-dkms-open` removed (only keep userspace libs from `cuda
 All build scripts live in this directory (`system/`).
 
 ```
-build-kernel.sh     → downloads kernel source, builds bzImage + modules + bcachefs + NVIDIA OOT, creates .tar.zst
-install-kernel.sh   → extracts tarball to target disk, creates EFI boot entry, runs depmod
+build-kernel.sh     → builds bzImage + modules + bcachefs + NVIDIA OOT, creates .tar.zst
+install-kernel.sh   → extracts tarball to target, creates EFI boot entry (finds disk by PARTUUID)
 build-rootfs.sh     → builds Ubuntu 24.04 minimal rootfs tarball (base image)
 install-rootfs.sh   → wipes disk, partitions, installs rootfs (DESTRUCTIVE)
 config              → kernel .config (back up before modifying)
+src/                → downloaded sources (kernel, bcachefs-tools, nvidia-open) — gitignored
+build/              → build tree + staging — gitignored
+images/             → output tarballs — gitignored
 ```
 
 #### Build kernel
 
 ```bash
 # 1. Edit config if needed (back it up first)
-# 2. Build kernel + bcachefs module + tools
+# 2. Build kernel + bcachefs + NVIDIA modules + tools
 ./build-kernel.sh          # → images/linux-<version>.tar.zst
 
-# 3. Install to target disk
-./install-kernel.sh images/linux-<version>.tar.zst /dev/nvme0n1
+# 3. Install (run on target — finds boot disk by PARTUUID)
+./install-kernel.sh images/linux-<version>.tar.zst
 ```
 
 #### Build rootfs (fresh install only)
@@ -141,7 +144,7 @@ config              → kernel .config (back up before modifying)
 ./install-rootfs.sh images/ubuntu-24.04-amd64.tar.zst /dev/nvme0n1
 
 # 3. Install kernel on top
-./install-kernel.sh images/linux-<version>.tar.zst /dev/nvme0n1
+./install-kernel.sh images/linux-<version>.tar.zst
 ```
 
 `build-kernel.sh` enables `CRYPTO_LZ4`, `CRYPTO_LZ4HC`, `BLK_DEV_INTEGRITY` (bcachefs deps) and `TCP_CONG_BBR`, `NET_SCH_FQ` (BBR) in the config, then builds the kernel, bcachefs module, NVIDIA open kernel modules, and userspace tools into a single tarball. Always update to the latest stable kernel, bcachefs-tools tag, and NVIDIA tag before building.

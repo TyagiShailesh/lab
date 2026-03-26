@@ -24,9 +24,13 @@ zstd -dc "$kernel" | tar -xpf - -C /mnt
 kname=$(basename "$kernel" .tar.zst)
 kver=${kname#linux-}
 
-# --- Verify bcachefs.ko exists ---
-if ! ls /mnt/usr/lib/modules/"$kver"/kernel/fs/bcachefs/bcachefs.ko >/dev/null 2>&1; then
-  echo "FATAL: bcachefs.ko missing from tarball for kernel $kver"
+# --- Verify critical modules exist ---
+fail=0
+ls /mnt/usr/lib/modules/"$kver"/kernel/fs/bcachefs/bcachefs.ko >/dev/null 2>&1 \
+  || { echo "FATAL: bcachefs.ko missing"; fail=1; }
+ls /mnt/usr/lib/modules/"$kver"/kernel/drivers/video/nvidia.ko >/dev/null 2>&1 \
+  || { echo "FATAL: nvidia.ko missing"; fail=1; }
+if [ "$fail" -eq 1 ]; then
   umount -R /mnt
   exit 1
 fi
@@ -64,7 +68,7 @@ echo "bcachefs" > /mnt/etc/modules-load.d/bcachefs.conf
 echo ""
 echo "=== Installation summary ==="
 echo "Kernel:  $kname installed to EFI partition"
-echo "Modules: /usr/lib/modules/$kver/ (including bcachefs.ko)"
+echo "Modules: /usr/lib/modules/$kver/ (bcachefs.ko, nvidia.ko)"
 echo "Tools:   /usr/local/sbin/bcachefs (updated)"
 echo "Boot:    EFI entry '$efi_label' created and set as default"
 echo ""
