@@ -83,13 +83,14 @@ Shifting from NVIDIA-only to dual-vendor AMD+NVIDIA:
 
 - [x] nvidia-smi works — RTX PRO 2000, Driver 595.58.03, CUDA 13.2
 - [x] rocminfo shows R9700 (gfx1201)
-- [x] renderD128 (iGPU), renderD129 (R9700), renderD130 (RTX PRO 2000)
+- [x] renderD128 (R9700), renderD129 (RTX PRO 2000) — i915 blacklisted
 - [x] Zero failed systemd services (removed TB tune/rps services)
 - [x] All mounts stable (PARTUUID, by-id, UUID)
+- [x] DaVinci Resolve Studio 20 running on NVIDIA CUDA via Xorg+x11vnc on :2 (port 5902)
+- [x] Resolve sees both RTX PRO 2000 (CUDA) and R9700 (OpenCL) — CUDA primary
 
 ## Next TODO
 
-- [ ] Test DaVinci Resolve launch via VNC
 - [ ] Test FFmpeg AV1 encode on R9700 VA-API
 - [ ] Test vLLM on R9700 with small model
 - [ ] Run speech-engine on RTX PRO 2000 (Candle/CUDA) to verify baseline before Burn port
