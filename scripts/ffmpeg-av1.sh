@@ -55,7 +55,19 @@ encode_one() {
     return 1
   fi
 
-  command -v exiftool >/dev/null && exiftool -overwrite_original -TagsFromFile "$f" -All:All "$out" 2>/dev/null || true
+  if command -v exiftool >/dev/null; then
+    exiftool -overwrite_original -TagsFromFile "$f" -All:All "$out" 2>/dev/null || true
+    # MXF tags don't map to MP4 automatically — copy key fields explicitly
+    if [[ "${f,,}" == *.mxf ]]; then
+      exiftool -overwrite_original -TagsFromFile "$f" \
+        '-QuickTime:CreateDate<MXF:CreateDate' \
+        '-QuickTime:ModifyDate<MXF:ModifyDate' \
+        '-QuickTime:Make<MXF:ApplicationSupplierName' \
+        '-QuickTime:Model<MXF:ApplicationName' \
+        '-QuickTime:Software<MXF:ApplicationVersionString' \
+        "$out" 2>/dev/null || true
+    fi
+  fi
   chown st:st "$(dirname "$out")" "$out"
   touch -r "$f" "$out"
   echo "DONE $rel"
