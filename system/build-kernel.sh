@@ -75,7 +75,7 @@ make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
   --enable TRANSPARENT_HUGEPAGE \
   --set-val IOMMU_DEFAULT_DMA_LAZY y \
   --enable PERF_EVENTS_AMD_UNCORE \
-  --enable MEMORY_HOTPLUG --enable ZONE_DEVICE \
+  --enable MEMORY_HOTPLUG --enable MEMORY_HOTREMOVE --enable ZONE_DEVICE \
   --enable PCI_P2PDMA \
   --enable DMABUF_MOVE_NOTIFY
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
