@@ -101,7 +101,7 @@ Pre-built from [NVIDIA/open-gpu-kernel-modules](https://github.com/NVIDIA/open-g
 
 | | |
 |---|---|
-| Modules | `nvidia.ko`, `nvidia-modeset.ko`, `nvidia-drm.ko`, `nvidia-uvm.ko`, `nvidia-peermem.ko` |
+| Modules | `nvidia.ko`, `nvidia-modeset.ko`, `nvidia-drm.ko`, `nvidia-uvm.ko`, `nvidia-peermem.ko`, `nvidia-fs.ko` |
 | Location | `/usr/lib/modules/<kver>/kernel/drivers/video/` |
 | Firmware | `/usr/lib/firmware/nvidia/<version>/gsp_*.bin` |
 | Version | Pinned tag in `build-kernel.sh` — must match `libnvidia-compute` etc. on target |
@@ -113,7 +113,7 @@ Target must have `nvidia-dkms-open` removed (only keep userspace libs from `cuda
 All build scripts live in this directory (`system/`).
 
 ```
-build-kernel.sh     → builds bzImage + modules + bcachefs + NVIDIA OOT, creates .tar.zst
+build-kernel.sh     → builds bzImage + modules + bcachefs + NVIDIA OOT + nvidia-fs (GDS), creates .tar.zst
 install-kernel.sh   → extracts tarball to target, creates EFI boot entry (finds disk by PARTUUID)
 build-rootfs.sh     → builds Ubuntu 24.04 minimal rootfs tarball (base image)
 install-rootfs.sh   → wipes disk, partitions, installs rootfs (DESTRUCTIVE)

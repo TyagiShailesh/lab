@@ -19,6 +19,11 @@ bcachefs_tag=v1.37.3
 nvidia_repo=https://github.com/NVIDIA/open-gpu-kernel-modules.git
 nvidia_tag=595.58.03
 
+# NVIDIA GPUDirect Storage kernel module
+# https://github.com/NVIDIA/gds-nvidia-fs/tags
+nvidia_fs_repo=https://github.com/NVIDIA/gds-nvidia-fs.git
+nvidia_fs_tag=v2.28.2
+
 # Ensure cargo is in PATH (rustup installs to ~/.cargo/bin)
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
@@ -44,6 +49,11 @@ if [ ! -d "src/nvidia-open" ]; then
   git clone --depth 1 --branch "$nvidia_tag" "$nvidia_repo" src/nvidia-open
 fi
 
+if [ ! -d "src/nvidia-fs" ]; then
+  echo "=== Cloning NVIDIA GDS (nvidia-fs) ==="
+  git clone --depth 1 --branch "$nvidia_fs_tag" "$nvidia_fs_repo" src/nvidia-fs
+fi
+
 # --- Kernel build ---
 cp config "$build/.config"
 
@@ -64,7 +74,10 @@ make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
   --enable CC_OPTIMIZE_FOR_PERFORMANCE \
   --enable TRANSPARENT_HUGEPAGE \
   --set-val IOMMU_DEFAULT_DMA_LAZY y \
-  --enable PERF_EVENTS_AMD_UNCORE
+  --enable PERF_EVENTS_AMD_UNCORE \
+  --enable MEMORY_HOTPLUG --enable ZONE_DEVICE \
+  --enable PCI_P2PDMA \
+  --enable DMABUF_MOVE_NOTIFY
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
 
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- -j"$(nproc)" bzImage modules
@@ -111,6 +124,10 @@ for mod in nvidia nvidia-modeset nvidia-drm nvidia-uvm nvidia-peermem; do
   cp "src/nvidia-open/kernel-open/$mod.ko" "$nvidia_dest"/
 done
 
+# --- NVIDIA GPUDirect Storage (nvidia-fs) kernel module ---
+make -C src/nvidia-fs/src KDIR="$(pwd)/$build" -j"$(nproc)"
+cp src/nvidia-fs/src/nvidia-fs.ko "$nvidia_dest"/
+
 # NVIDIA GSP firmware ships with the userspace driver package (apt install cuda).
 # Already at /lib/firmware/nvidia/<version>/gsp_*.bin on target — not in open-gpu-kernel-modules repo.
 
@@ -130,6 +147,7 @@ fail=0
 grep -q bcachefs "$staging/usr/lib/modules/$kver/modules.dep" && echo "OK: bcachefs in modules.dep" || { echo "FAIL: bcachefs not in modules.dep"; fail=1; }
 [ -f "$nvidia_dest/nvidia.ko" ] && echo "OK: nvidia.ko" || { echo "FAIL: nvidia.ko missing"; fail=1; }
 [ -f "$nvidia_dest/nvidia-drm.ko" ] && echo "OK: nvidia-drm.ko" || { echo "FAIL: nvidia-drm.ko missing"; fail=1; }
+[ -f "$nvidia_dest/nvidia-fs.ko" ] && echo "OK: nvidia-fs.ko (GDS)" || { echo "FAIL: nvidia-fs.ko missing"; fail=1; }
 [ "$fail" -eq 1 ] && { echo "FATAL: verification failed"; exit 1; }
 
 # --- Create tarball ---
