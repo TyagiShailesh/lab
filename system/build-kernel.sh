@@ -129,6 +129,13 @@ done
 nvidia_p2p_dir="$(pwd)/src/nvidia-open/kernel-open/nvidia"
 # Build nv.symvers from the just-built nvidia.ko
 grep "nvidia_p2p_" src/nvidia-open/kernel-open/Module.symvers > src/nvidia-fs/src/nv.symvers
+# Patch nvidia-fs for kernel 6.18+ API changes:
+#   1. __vm_flags removed — read via vma->vm_flags (it's a read-only access)
+#   2. blk_dma_iter.iter is now blk_map_iter, not req_iterator (function sigs + usage)
+#   3. page->flags is memdesc_flags_t{.f} not unsigned long — use .f for %lx format
+sed -i 's/ACCESS_PRIVATE(vma, __vm_flags)/vma->vm_flags/' src/nvidia-fs/src/nvfs-mmap.c
+sed -i 's/struct req_iterator/struct blk_map_iter/g' src/nvidia-fs/src/nvfs-dma.c
+sed -i 's/->flags)/->flags.f)/g; s/\->flags$/->flags.f/' src/nvidia-fs/src/nvfs-mmap.c
 make -C src/nvidia-fs/src KDIR="$(pwd)/$build" NVIDIA_SRC_DIR="$nvidia_p2p_dir" -j"$(nproc)" module
 cp src/nvidia-fs/src/nvidia-fs.ko "$nvidia_dest"/
 
