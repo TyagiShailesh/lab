@@ -235,7 +235,34 @@ EOF
 udevadm trigger
 ```
 
-## 8. WireGuard
+## 8. NVMe tuning (Samsung 9100 Pro)
+
+Kernel cmdline already sets `iommu=pt` (identity-mapped DMA, removes 128KB transfer cap) and `nvme.poll_queues=4` (polled I/O for Gen5 NVMe). These additional runtime settings are applied by udev:
+
+```bash
+cat > /etc/udev/rules.d/61-nvme-perf.rules << 'EOF'
+# Samsung 9100 Pro: strict CPU completion affinity + interrupt coalescing
+ACTION=="add|change", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{queue/rq_affinity}="2"
+EOF
+
+udevadm trigger
+```
+
+Interrupt coalescing (50us aggregation, threshold 10) — run once:
+
+```bash
+nvme set-feature /dev/disk/by-id/nvme-Samsung_SSD_9100_PRO_1TB_S7YENJ0L200013T -f 0x08 -v 0x320a
+```
+
+Verify with fio (should match Samsung's rated 14,700 MB/s):
+
+```bash
+fio --name=seqread --filename=/dev/disk/by-id/nvme-Samsung_SSD_9100_PRO_1TB_S7YENJ0L200013T \
+  --ioengine=io_uring --direct=1 --bs=128k --iodepth=32 --numjobs=1 --rw=read \
+  --runtime=30 --time_based --group_reporting
+```
+
+## 9. WireGuard
 
 ```bash
 cat > /etc/wireguard/wg0.conf << 'EOF'
@@ -253,7 +280,7 @@ chmod 600 /etc/wireguard/wg0.conf
 systemctl enable --now wg-quick@wg0
 ```
 
-## 9. PostgreSQL 18
+## 10. PostgreSQL 18
 
 ```bash
 # Add PGDG repo
@@ -289,13 +316,13 @@ mkdir -p /store/media/resolve/backup
 chown postgres:postgres /store/media/resolve/backup
 ```
 
-## 10. Ollama
+## 11. Ollama
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-## 11. Caddy
+## 12. Caddy
 
 ```bash
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy.gpg
@@ -304,7 +331,7 @@ apt update && apt install -y caddy
 systemctl enable --now caddy
 ```
 
-## 12. Path symlinks (for DaVinci Resolve path matching with Mac)
+## 13. Path symlinks (for DaVinci Resolve path matching with Mac)
 
 ```bash
 mkdir -p /Volumes
@@ -312,7 +339,7 @@ ln -sf /store/media /Volumes/media
 ln -sf /store/st /Volumes/st
 ```
 
-## 13. Verify
+## 14. Verify
 
 ```bash
 # Storage

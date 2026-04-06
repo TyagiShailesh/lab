@@ -30,7 +30,7 @@ Custom-compiled, **not** from Ubuntu packages. EFISTUB boot — **no GRUB, no in
 | Running | 6.19.10 (`SMP PREEMPT_DYNAMIC`, built as root@nas) |
 | Fallback | 6.19.9 |
 | Boot | EFISTUB direct — UEFI firmware loads bzImage, no bootloader |
-| cmdline | `root=PARTUUID=204dd2f7-381a-47a8-bc8d-c2dff520e914 rw` |
+| cmdline | `root=PARTUUID=204dd2f7-381a-47a8-bc8d-c2dff520e914 rw iommu=pt nvme.poll_queues=4` |
 | Build pipeline | `system/` (this directory) |
 
 ### Boot sequence

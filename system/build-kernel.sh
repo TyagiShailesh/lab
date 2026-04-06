@@ -125,7 +125,11 @@ for mod in nvidia nvidia-modeset nvidia-drm nvidia-uvm nvidia-peermem; do
 done
 
 # --- NVIDIA GPUDirect Storage (nvidia-fs) kernel module ---
-make -C src/nvidia-fs/src KDIR="$(pwd)/$build" -j"$(nproc)"
+# nvidia-fs needs nv-p2p.h from NVIDIA source + nvidia_p2p_* symbols from built modules
+nvidia_p2p_dir="$(pwd)/src/nvidia-open/kernel-open/nvidia"
+# Build nv.symvers from the just-built nvidia.ko
+grep "nvidia_p2p_" src/nvidia-open/kernel-open/Module.symvers > src/nvidia-fs/src/nv.symvers
+make -C src/nvidia-fs/src KDIR="$(pwd)/$build" NVIDIA_SRC_DIR="$nvidia_p2p_dir" -j"$(nproc)" module
 cp src/nvidia-fs/src/nvidia-fs.ko "$nvidia_dest"/
 
 # NVIDIA GSP firmware ships with the userspace driver package (apt install cuda).
