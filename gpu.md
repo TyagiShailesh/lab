@@ -90,9 +90,9 @@ nvcc --version
 
 ### GPUDirect Storage (GDS)
 
-PCIe peer-to-peer DMA between Samsung 9100 Pro NVMe and RTX PRO 2000, bypassing CPU bounce buffers. Both devices are on CPU-direct PCIe 5.0 lanes (same root complex).
+GPUDirect Storage via cuFile API. Runs in **compat mode** — ACS on PCIe bridges (`00:01.0`, `00:06.0`) blocks native P2P DMA between NVMe and GPU, so data stages through CPU memory. Still faster than raw `read()` + `cudaMemcpy()` because cuFile optimizes the staging path.
 
-Kernel module (`nvidia-fs.ko`) is pre-built in `system/build-kernel.sh`. Kernel config enables `PCI_P2PDMA`, `ZONE_DEVICE`, `MEMORY_HOTPLUG`, `DMABUF_MOVE_NOTIFY`. Cmdline requires `iommu=pt`.
+Kernel module (`nvidia-fs.ko`) is pre-built in `system/build-kernel.sh` (patched for kernel 6.18+ API). Kernel config enables `PCI_P2PDMA`, `ZONE_DEVICE`, `MEMORY_HOTPLUG`, `MEMORY_HOTREMOVE`, `DMABUF_MOVE_NOTIFY`. Embedded cmdline: `iommu=pt nvme.poll_queues=4`.
 
 ```bash
 # Install GDS userspace (on target)

@@ -20,7 +20,7 @@
 
 | Slot | Drive | Model | Size | Role | Filesystem | Mount |
 |---|---|---|---|---|---|---|
-| M.2_1 (Gen5, CPU) | Samsung 9100 Pro | Samsung SSD 9100 PRO 1TB (S7YENJ0L200013T) | 1 TB | Cache (models, Resolve, vLLM) | XFS | `/cache` |
+| M.2_1 (Gen5, CPU) | Samsung 9100 Pro | Samsung SSD 9100 PRO 1TB (S7YENJ0L200013T) | 1 TB | Cache (models, Resolve, vLLM), 11.9 GB/s seq read | XFS | `/cache` |
 | M.2_2 (Gen4, chipset) | Samsung 990 Pro | Samsung SSD 990 PRO 2TB (S7KHNU0Y517886B) | 2 TB | Boot | XFS (root) + vfat (EFI) | `/` + `/boot/efi` |
 | M.2_3 (Gen4, chipset) | — | — | — | Empty | — | — |
 | M.2_4 (Gen4, chipset) | WD Black SN850X | WD_BLACK SN850X HS 2000GB (24364L800813) | 2 TB | bcachefs cache (label: ssd) | bcachefs | `/data`, `/store` |

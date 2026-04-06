@@ -27,10 +27,10 @@ Custom-compiled, **not** from Ubuntu packages. EFISTUB boot — **no GRUB, no in
 
 | | |
 |---|---|
-| Running | 6.19.10 (`SMP PREEMPT_DYNAMIC`, built as root@nas) |
+| Running | 6.19.10 (`SMP PREEMPT_DYNAMIC`) |
 | Fallback | 6.19.9 |
 | Boot | EFISTUB direct — UEFI firmware loads bzImage, no bootloader |
-| cmdline | `root=PARTUUID=204dd2f7-381a-47a8-bc8d-c2dff520e914 rw iommu=pt nvme.poll_queues=4` |
+| cmdline | `root=PARTUUID=204dd2f7-381a-47a8-bc8d-c2dff520e914 rw` + embedded `iommu=pt nvme.poll_queues=4` via `CONFIG_CMDLINE` |
 | Build pipeline | `system/` (this directory) |
 
 ### Boot sequence
@@ -110,17 +110,17 @@ Target must have `nvidia-dkms-open` removed (only keep userspace libs from `cuda
 
 ### NVIDIA GPUDirect Storage (GDS)
 
-`nvidia-fs.ko` enables PCIe peer-to-peer DMA between NVMe storage and GPU, bypassing CPU bounce buffers. Built from [NVIDIA/gds-nvidia-fs](https://github.com/NVIDIA/gds-nvidia-fs) at a pinned tag.
+`nvidia-fs.ko` enables GPUDirect Storage between NVMe and GPU. Built from [NVIDIA/gds-nvidia-fs](https://github.com/NVIDIA/gds-nvidia-fs) at a pinned tag. Source is patched in `build-kernel.sh` for kernel 6.18+ API changes (`vm_flags`, `blk_map_iter`, `memdesc_flags_t`).
 
 | | |
 |---|---|
 | Module | `nvidia-fs.ko` (built alongside NVIDIA open modules) |
 | Userspace | `nvidia-gds` package from CUDA repo (`apt install nvidia-gds` on target) |
 | Verify | `modprobe nvidia-fs` then `/usr/local/cuda/gds/tools/gdscheck -p` |
-| Kernel deps | `PCI_P2PDMA=y`, `ZONE_DEVICE=y`, `MEMORY_HOTPLUG=y`, `DMABUF_MOVE_NOTIFY=y` |
-| cmdline | `iommu=pt` required — translated IOMMU caps DMA transfers to 128KB |
+| Kernel deps | `PCI_P2PDMA=y`, `ZONE_DEVICE=y`, `MEMORY_HOTPLUG=y`, `MEMORY_HOTREMOVE=y`, `DMABUF_MOVE_NOTIFY=y` |
+| Mode | Compat (ACS enabled on PCIe bridges blocks native P2P between NVMe and GPU) |
 
-The Samsung 9100 Pro (M.2\_1, Gen5 CPU-direct) and RTX PRO 2000 (PCIEX16\_2, Gen5 CPU-direct) are on the same PCIe root complex, which is the optimal topology for P2P transfers.
+The Samsung 9100 Pro (M.2\_1, Gen5 CPU-direct) and RTX PRO 2000 (PCIEX16\_2, Gen5 CPU-direct) are on the same PCIe root complex but on different bridges (`00:01.0` and `00:06.0`). ACS on both bridges forces DMA through the root complex (compat mode). Native P2P would require `pci=noacs`.
 
 ### Build pipeline
 
@@ -132,7 +132,7 @@ install-kernel.sh   → extracts tarball to target, creates EFI boot entry (find
 build-rootfs.sh     → builds Ubuntu 24.04 minimal rootfs tarball (base image)
 install-rootfs.sh   → wipes disk, partitions, installs rootfs (DESTRUCTIVE)
 config              → kernel .config (back up before modifying)
-src/                → downloaded sources (kernel, bcachefs-tools, nvidia-open) — gitignored
+src/                → downloaded sources (kernel, bcachefs-tools, nvidia-open, nvidia-fs) — gitignored
 build/              → build tree + staging — gitignored
 images/             → output tarballs — gitignored
 ```
