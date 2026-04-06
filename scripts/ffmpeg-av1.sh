@@ -2,7 +2,7 @@
 # AV1 delivery encode — Intel (default), AMD, or NVIDIA
 # Usage: ffmpeg-av1.sh [amd|nv]
 # Creates smaller delivery copies from staging area
-# AV1 quantizer scale 0-255 (lower=better), q150 = delivery quality
+# AV1 quantizer scale 0-255 (lower=better), q80 = high quality
 set -euo pipefail
 
 SRC="/store/media/video/transcode"
@@ -18,18 +18,18 @@ GPU=intel
 
 case "$GPU" in
   nvidia)
-    ENC=(-c:v av1_nvenc -preset p7 -tune hq -rc constqp -qp 150
+    ENC=(-c:v av1_nvenc -preset p7 -tune hq -rc constqp -qp 80
          -profile:v main10 -highbitdepth 1 -bf 4 -rc-lookahead 32 -g 240)
     ;;
   amd)
-    ENC=(-c:v av1_vaapi -rc_mode CQP -global_quality 150 -g 240)
+    ENC=(-c:v av1_vaapi -rc_mode CQP -global_quality 80 -g 240)
     ;;
   intel)
-    ENC=(-c:v av1_vaapi -rc_mode CQP -global_quality 150 -g 240)
+    ENC=(-c:v av1_vaapi -rc_mode CQP -global_quality 80 -g 240)
     ;;
 esac
 
-echo "AV1 delivery — $GPU (q150)"
+echo "AV1 delivery — $GPU (q80)"
 
 find "$SRC" -path "$DST" -prune -o -type f -regextype posix-extended \
   -iregex ".*\\.($VID_EXT)" -print0 |
@@ -56,7 +56,7 @@ while IFS= read -r -d '' f; do
     amd)
       if [[ "$pix" == *422* ]]; then
         echo "  4:2:2 → 4:2:0 (GPU)"
-        HW=(-vaapi_device /dev/dri/renderD128 -i "$f" -vf 'format=nv12,hwupload,scale_vaapi=format=p010')
+        HW=(-vaapi_device /dev/dri/renderD128 -i "$f" -vf 'format=yuv420p10le,hwupload,scale_vaapi=format=p010')
       else
         HW=(-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format vaapi -i "$f")
       fi
@@ -64,7 +64,7 @@ while IFS= read -r -d '' f; do
     intel)
       if [[ "$pix" == *422* ]]; then
         echo "  4:2:2 → 4:2:0 (GPU)"
-        HW=(-vaapi_device /dev/dri/renderD130 -i "$f" -vf 'format=nv12,hwupload,scale_vaapi=format=p010')
+        HW=(-vaapi_device /dev/dri/renderD130 -i "$f" -vf 'format=yuv420p10le,hwupload,scale_vaapi=format=p010')
       else
         HW=(-hwaccel vaapi -hwaccel_device /dev/dri/renderD130 -hwaccel_output_format vaapi -i "$f")
       fi
@@ -87,6 +87,5 @@ while IFS= read -r -d '' f; do
   chown st:st "$(dirname "$out")" "$out"
   touch -r "$f" "$out"
   CURRENT_OUT=""
-  rm "$f"
   echo "DONE $rel"
 done
