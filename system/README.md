@@ -108,6 +108,20 @@ Pre-built from [NVIDIA/open-gpu-kernel-modules](https://github.com/NVIDIA/open-g
 
 Target must have `nvidia-dkms-open` removed (only keep userspace libs from `cuda` metapackage).
 
+### NVIDIA GPUDirect Storage (GDS)
+
+`nvidia-fs.ko` enables PCIe peer-to-peer DMA between NVMe storage and GPU, bypassing CPU bounce buffers. Built from [NVIDIA/gds-nvidia-fs](https://github.com/NVIDIA/gds-nvidia-fs) at a pinned tag.
+
+| | |
+|---|---|
+| Module | `nvidia-fs.ko` (built alongside NVIDIA open modules) |
+| Userspace | `nvidia-gds` package from CUDA repo (`apt install nvidia-gds` on target) |
+| Verify | `modprobe nvidia-fs` then `/usr/local/cuda/gds/tools/gdscheck -p` |
+| Kernel deps | `PCI_P2PDMA=y`, `ZONE_DEVICE=y`, `MEMORY_HOTPLUG=y`, `DMABUF_MOVE_NOTIFY=y` |
+| cmdline | `iommu=pt` required — translated IOMMU caps DMA transfers to 128KB |
+
+The Samsung 9100 Pro (M.2\_1, Gen5 CPU-direct) and RTX PRO 2000 (PCIEX16\_2, Gen5 CPU-direct) are on the same PCIe root complex, which is the optimal topology for P2P transfers.
+
 ### Build pipeline
 
 All build scripts live in this directory (`system/`).

@@ -47,9 +47,9 @@ rocminfo
 clinfo
 ```
 
-Kernel parameters (add to GRUB):
+Kernel parameters (`iommu=pt` already on cmdline for NVMe/GDS):
 ```
-iommu=pt amd_iommu=on amdgpu.runpm=0
+amdgpu.runpm=0
 ```
 
 ### Use cases
@@ -88,6 +88,31 @@ nvidia-smi
 nvcc --version
 ```
 
+### GPUDirect Storage (GDS)
+
+PCIe peer-to-peer DMA between Samsung 9100 Pro NVMe and RTX PRO 2000, bypassing CPU bounce buffers. Both devices are on CPU-direct PCIe 5.0 lanes (same root complex).
+
+Kernel module (`nvidia-fs.ko`) is pre-built in `system/build-kernel.sh`. Kernel config enables `PCI_P2PDMA`, `ZONE_DEVICE`, `MEMORY_HOTPLUG`, `DMABUF_MOVE_NOTIFY`. Cmdline requires `iommu=pt`.
+
+```bash
+# Install GDS userspace (on target)
+apt install nvidia-gds
+
+# Load module
+modprobe nvidia-fs
+
+# Verify P2P support
+/usr/local/cuda/gds/tools/gdscheck -p
+```
+
+| | |
+|---|---|
+| Kernel module | `nvidia-fs.ko` v2.28.2 ([NVIDIA/gds-nvidia-fs](https://github.com/NVIDIA/gds-nvidia-fs)) |
+| Driver | 595.58.03 (open kernel modules) |
+| CUDA | 13.2 |
+| NVMe | Samsung 9100 Pro, M.2\_1 Gen5 CPU-direct, IOMMU group 15 |
+| GPU | RTX PRO 2000, PCIEX16\_2 Gen5 CPU-direct, IOMMU group 16 |
+
 ### Use cases
 
 | Workload | Stack |
@@ -95,6 +120,7 @@ nvcc --version
 | DaVinci Resolve | CUDA (officially supported on Linux) |
 | Speech-engine (Candle, until Burn port) | CUDA |
 | FFmpeg occasional encode | NVENC 9th gen (AV1/HEVC/H.264) |
+| GDS (NVMe→GPU direct) | nvidia-fs + cuFile API |
 
 ---
 
