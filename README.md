@@ -8,7 +8,7 @@ ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake) / 64 GB RAM 
 
 | Component | Status |
 |---|---|
-| Samba (media/st/data/TM shares, SMB3) | done |
+| Samba (media/st/data/iris/TM shares, SMB3) | done |
 | bcachefs tuning (SSD durability 2, no foreground compression, zstd at rest) | done |
 | PostgreSQL 18 (PGDG, nightly backup) | done |
 | Mac Resolve → PostgreSQL | done |

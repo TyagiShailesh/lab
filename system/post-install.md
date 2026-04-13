@@ -113,6 +113,15 @@ cat > /etc/samba/smb.conf << 'EOF'
    create mask = 0600
    directory mask = 0700
    inherit permissions = no
+
+[iris]
+   path = /cache/iris
+   valid users = st
+   force user = st
+   read only = no
+   create mask = 0600
+   directory mask = 0700
+   inherit permissions = no
 EOF
 
 # Set samba password for st user
@@ -149,6 +158,12 @@ systemctl enable --now bcachefs-store
 # Share directories (these exist on the bcachefs pool, not root)
 mkdir -p /store/media /store/st /store/data /store/tm
 chown st:st /store/media /store/st /store/data /store/tm
+
+# Iris lives on /cache and is written by the root-run iris service.
+mkdir -p /cache/iris
+chgrp -R st /cache/iris
+chmod -R g+rwX,o-rwx /cache/iris
+find /cache/iris -type d -exec chmod g+s {} +
 ```
 
 ### bcachefs tuning

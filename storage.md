@@ -46,6 +46,7 @@ bcachefs format \
 | media | `/store/media` | force user: st, 0644/0755 masks |
 | st | `/store/st` | force user: st, 0600/0700 masks |
 | data | `/store/data` | force user: st, 0600/0700 masks |
+| iris | `/cache/iris` | force user: st, 0600/0700 masks, group st rw |
 | tm | `/store/tm` | Time Machine, 4 TB max |
 
 Config: SMB3 minimum, macOS fruit/AAPL extensions enabled, NetBIOS disabled.
