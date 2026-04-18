@@ -104,7 +104,7 @@ install-kernel.sh   → extracts tarball to target, creates EFI boot entry (find
 build-rootfs.sh     → builds Ubuntu 24.04 minimal rootfs tarball
 install-rootfs.sh   → wipes disk, partitions, installs rootfs (DESTRUCTIVE)
 config              → kernel .config (back up before modifying)
-patches/            → kernel patches applied during build
+tb-upstream/        → thunderbolt_net page_pool patch + submission runbook (see tb-upstream/README.md)
 src/                → downloaded sources (kernel, bcachefs-tools, nvidia-open, nvidia-fs) — gitignored
 build/              → build tree + staging — gitignored
 images/             → output tarballs — gitignored

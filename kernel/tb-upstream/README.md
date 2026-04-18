@@ -6,12 +6,12 @@ upstream. Do this from the `st@samespace.com` mail client.
 ## 1. Regenerate the patch against current net-next
 
 The formatted patch needs an up-to-date `base-commit:` trailer. From
-`/root/lab/net-next`:
+`/root/lab/kernel/tb-upstream/net-next`:
 
 ```bash
 git fetch origin
 git checkout -B tbnet-page-pool origin/main
-git am /root/lab/kernel/patches/0001-net-thunderbolt_net-convert-Rx-path-to-page_pool.patch
+git am /root/lab/kernel/tb-upstream/0001-net-thunderbolt_net-convert-Rx-path-to-page_pool.patch
 ./scripts/checkpatch.pl --strict -g HEAD          # must be clean
 git format-patch --base=auto -o /tmp/tbnet-out origin/main
 ```
@@ -85,7 +85,7 @@ Send a copy to yourself first. In the received message, use "show original"
 / "view source" and save it as `received.eml`. Then:
 
 ```bash
-cd /root/lab/net-next
+cd /root/lab/kernel/tb-upstream/net-next
 git checkout origin/main
 git apply --check /path/to/received.eml
 ```

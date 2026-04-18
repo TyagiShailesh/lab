@@ -6,7 +6,7 @@
 - SSH access: `ssh 192.168.1.10` (root)
 - bcachefs pool mounted at `/nas`
 - Samba shares: media, st, data, iris, tm
-- Docs: [README.md](README.md) has the full index. Key files: [bcachefs.md](bcachefs.md) (pool architecture + mount + module), [hardware.md](hardware.md), [network.md](network.md), [storage.md](storage.md), [gpu.md](gpu.md), [media.md](media.md), [thunderbolt.md](thunderbolt.md), [tb-upstream.md](tb-upstream.md) (upstream submission runbook for the tbnet page_pool patch). Kernel build pipeline: [kernel/](kernel/). Runnable tools: [scripts/](scripts/).
+- Docs: [README.md](README.md) has the full index. Key files: [bcachefs.md](bcachefs.md) (pool architecture + mount + module), [hardware.md](hardware.md), [network.md](network.md), [storage.md](storage.md), [gpu.md](gpu.md), [media.md](media.md), [thunderbolt.md](thunderbolt.md), [kernel/tb-upstream/](kernel/tb-upstream/) (tbnet page_pool patch + upstream submission runbook). Kernel build pipeline: [kernel/](kernel/). Runnable tools: [scripts/](scripts/).
 
 ## Arqic + Khor Specs (at /data/code/ws/docs/)
 
