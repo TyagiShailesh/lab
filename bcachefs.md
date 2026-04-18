@@ -25,7 +25,7 @@ Hardware is final — this is the single intended layout, not a "plan."
 | `/nas` | Bulk storage: media, user data, Time Machine, backups, model files, firmware archives |
 | `/var/iris` | Iris service working dir. Local to boot SSD (9100); not on bcachefs. |
 
-All Samba shares live under `/nas` except `iris`, which is served from `/var/iris` ([storage.md](storage.md)).
+All Samba shares live under `/nas` except `iris`, which is served from `/var/iris/clips` ([storage.md](storage.md)).
 
 bcachefs is **not** in the mainline kernel tree for this lab; it ships as an **out-of-tree module** built from [koverstreet/bcachefs-tools](https://github.com/koverstreet/bcachefs-tools) pinned to the same tag as the userspace `bcachefs` binary ([kernel/build-kernel.sh](kernel/build-kernel.sh)).
 

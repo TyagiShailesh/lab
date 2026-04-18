@@ -15,7 +15,7 @@
 | media | `/nas/media` | force user: st, 0644/0755 masks |
 | st | `/nas/st` | force user: st, 0600/0700 masks |
 | data | `/nas/data` | force user: st, 0600/0700 masks |
-| iris | `/var/iris` | force user: st, force group: iris. 2770 setgid; st added to iris group. Root-run service; local to boot SSD, not on bcachefs. |
+| iris | `/var/iris/clips` | force user: st, force group: iris. 2770 setgid; st added to iris group. Iris service writes to `/var/iris/` (local to boot SSD, not on bcachefs); `clips/` subdir is exposed to SMB. |
 | tm | `/nas/tm` | Time Machine, 4 TB max |
 
 Config: SMB3 minimum, macOS fruit/AAPL extensions enabled, NetBIOS disabled. Samba's `vfs objects = catia fruit streams_xattr` requires `samba-vfs-modules` (Ubuntu's `samba` meta-package doesn't pull it).

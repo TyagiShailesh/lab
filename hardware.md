@@ -5,8 +5,8 @@
 | Component | Detail |
 |---|---|
 | Motherboard | ASUS ProArt Z890-CREATOR WIFI (Rev 1.xx) |
-| CPU | Intel Core Ultra 5 235 (Arrow Lake, 14C/14T, 3.6 GHz base / 4.8 GHz boost) |
-| RAM | 64 GB DDR5-5600 (2× 32 GB Micron CP32G64C40U5B, slots A1+B1, 2 slots empty) |
+| CPU | Intel Core Ultra 5 235 (Arrow Lake, 14C/14T, 3.4 GHz P-core base / 5.0 GHz boost) |
+| RAM | 64 GB DDR5-5600 (2× 32 GB Micron CP32G64C40U5B, dual-channel, 2 slots empty) |
 | GPU | NVIDIA RTX PRO 2000 Blackwell (16 GB, PCIEX16_2) + Intel Arrow Lake iGPU |
 | NPU | Intel Arrow Lake NPU |
 | Network | Marvell AQtion 10GbE + Intel 2.5GbE, bridged as br0 (192.168.1.10/24) |
@@ -40,6 +40,6 @@ Pool design and per-device rationale: [bcachefs.md](bcachefs.md).
 
 ## BIOS
 
-Current: **3002** (2026-01-30).
+Current: **3002** (2026-01-29).
 Firmware at `/nas/data/asus/`.
 User manual: `/nas/data/asus/E27671_ProArt_Z890-CREATOR_WIFI_EM_V4_WEB.pdf`

@@ -11,16 +11,16 @@ Rear I/O USB-C ports (from ProArt Z890 manual p.30):
 
 ## Driver
 
-Using `thunderbolt_net` with a local page_pool RX patch at [kernel/patches/0001-net-thunderbolt_net-convert-Rx-path-to-page_pool.patch](kernel/patches/0001-net-thunderbolt_net-convert-Rx-path-to-page_pool.patch), applied during kernel build. Bumps ring size 256 → 1024 and replaces per-packet `dma_unmap_page` with page_pool recycling. Intended for upstream submission.
+Using `thunderbolt_net` with a local page_pool RX patch at [kernel/patches/0001-net-thunderbolt_net-convert-Rx-path-to-page_pool.patch](kernel/patches/0001-net-thunderbolt_net-convert-Rx-path-to-page_pool.patch), applied during kernel build. Bumps ring size 256 → 1024 and replaces per-packet `dma_unmap_page` with page_pool recycling. Upstream submission workflow: [tb-upstream.md](tb-upstream.md).
 
-## Performance (patched OOT driver, TB5 port, iperf3)
+## Performance (patched driver, TB5 port, iperf3)
 
 | Direction | Throughput | Bottleneck |
 |---|---|---|
 | TX (lab→Mac) | ~41 Gbps / 5.1 GB/s | single core TX |
-| RX (Mac→lab) | ~30 Gbps / 3.75 GB/s | single core NAPI poll |
+| RX (Mac→lab) | ~42 Gbps / 5.25 GB/s | single core NAPI poll |
 
-In-tree driver: ~20 Gbps (sufficient for file serving and backups).
+Stock in-tree driver: RX ~20 Gbps — the patch roughly doubles it.
 
 ### Why single-core limited
 
