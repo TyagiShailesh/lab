@@ -23,10 +23,3 @@ Config: SMB3 minimum, macOS fruit/AAPL extensions enabled, NetBIOS disabled. Sam
 Mac mounts: `smb://lab.local/media` → `/Volumes/media` (Samba advertises NetBIOS name `nas`; mDNS hostname is still `lab.local`).
 Linux symlinks: `/Volumes/media` → `/nas/media`, `/Volumes/st` → `/nas/st`
 
-Full `smb.conf` and service bring-up: [post-install.md](post-install.md).
-
----
-
-## PostgreSQL
-
-Separate doc: [postgres.md](postgres.md) (used by Mac DaVinci Resolve).

@@ -1,6 +1,6 @@
 # bcachefs on lab (192.168.1.10)
 
-Single reference for how `/nas` is built, mounted, and maintained. **Samba paths and light summary:** [storage.md](storage.md). **Kernel build pipeline:** [kernel/README.md](kernel/README.md), [kernel/build-kernel.sh](kernel/build-kernel.sh). **Historical migrations:** [migrate-bcachefs.md](migrate-bcachefs.md) (SSD-split + data_allowed redesign).
+Single reference for how `/nas` is built, mounted, and maintained. **Samba paths and light summary:** [storage.md](storage.md). **Kernel build pipeline:** [kernel/README.md](kernel/README.md), [kernel/build-kernel.sh](kernel/build-kernel.sh).
 
 ---
 
@@ -71,7 +71,7 @@ This is the mechanism that enforces the design goal:
 
 | Device label | `data_allowed` | Effect |
 |---|---|---|
-| `ssd` (SN850X, 9100 Pro) | `journal,user` | No btree on SSDs. Journal + user-data writeback cache only. |
+| `ssd` (SN850X, 990 Pro) | `journal,user` | No btree on SSDs. Journal + user-data writeback cache only. |
 | `hdd` (Exos ×2) | `btree,user` | No journal on HDDs. Btree + reconciled user data. |
 
 Consequence: `metadata_replicas=2` places both btree copies on HDDs (the only devices that allow btree). Journal replicas land on SSDs (the only devices that allow journal). `fsync` stays at NVMe latency; metadata integrity survives full SSD loss.
@@ -236,22 +236,7 @@ Expected:
 
 | File | Contents |
 |------|----------|
-| [storage.md](storage.md) | Samba shares, PostgreSQL backup path, short pool note |
-| [migrate-bcachefs.md](migrate-bcachefs.md) | **One-time** migration from legacy single-SSD pool to the layout in this doc |
+| [storage.md](storage.md) | Samba shares, short pool note |
 | [kernel/README.md](kernel/README.md) | Full kernel/bcachefs/NVIDIA build narrative |
 | [kernel/build-kernel.sh](kernel/build-kernel.sh) | Pinned tags, staging layout, verification |
-| [post-install.md](post-install.md) | Steady-state install steps (post-migration) |
 | [hardware.md](hardware.md) | Physical slot mapping |
-
----
-
-## 12. Changelog
-
-| Date | Note |
-|------|------|
-| 2026-04-18 | Executed the pool redesign from [migrate-bcachefs.md](migrate-bcachefs.md): 9100 Pro added as second SSD; HDDs `data_allowed=btree,user` (metadata truth), SSDs `data_allowed=journal,user` (hot-path + fsync), all devices `durability=1`, SN850X dropped 2→1. `/cache` decommissioned — iris → `/var/iris`, models → `/store/models`. |
-| 2026-04-18 | Plan change: 9100 Pro removed from pool (Gen5 lane wasted as replicated-pool member bounded by SN850X); 9100 reassigned to be the new boot drive + models cache. 990 Pro 2 TB will replace it in the pool once the OS is on the 9100. Pool is temporarily 3 devices (2× HDD + SN850X). `/store` → `/nas` rename follows. |
-| 2026-04-18 | Migration complete: OS built on 9100 (kernel 7.0, XFS root), 990 Pro wiped and added to pool as second `ssd` member (dev 4), `/store` → `/nas`, `bcachefs-store.service` → `nas.service`. Pool is now 4 symmetric devices: 2× Exos HDD + 990 + SN850X (both SSDs on Gen4 chipset path). |
-| 2026-04 | Replaced `ssd-swap.md` with this doc. |
-
-When you change replication, devices, `data_allowed`, or the unit file, add a one-line entry here.

@@ -11,7 +11,7 @@ thunderbolt0 (TB5 via port) ─┘
 wg0 (10.0.0.1/30, UDP 51820)
 ```
 
-Static IP, jumbo frames, no DHCP. Bridge managed by netplan → systemd-networkd. Thunderbolt hardware details and upstream work: [thunderbolt.md](thunderbolt.md), [thunderbolt-upstream.md](thunderbolt-upstream.md).
+Static IP, jumbo frames, no DHCP. Bridge managed by netplan → systemd-networkd. Thunderbolt hardware details: [thunderbolt.md](thunderbolt.md).
 
 ---
 

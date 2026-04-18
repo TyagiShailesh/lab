@@ -8,7 +8,6 @@ Topic docs:
 - Networking, sysctl: [../network.md](../network.md)
 - bcachefs pool: [../bcachefs.md](../bcachefs.md)
 - NVIDIA driver + GDS details: [../gpu.md](../gpu.md)
-- OS bring-up runbook: [../post-install.md](../post-install.md)
 
 ---
 
@@ -147,13 +146,13 @@ images/             → output tarballs — gitignored
 |---|---|---|
 | `nas` | Mount bcachefs pool at `/nas` | [../bcachefs.md](../bcachefs.md) |
 | `smbd` / `nmbd` | Samba file sharing | [../storage.md](../storage.md) |
-| `postgresql` | Mac DaVinci Resolve project DB | [../postgres.md](../postgres.md) |
+| `postgresql` | Mac DaVinci Resolve project DB | — |
 | `avahi-daemon` | mDNS (lab.local) | — |
 | `wg-quick@wg0` | WireGuard VPN | [../network.md](../network.md) |
 | `cpu-performance` | CPU governor = performance on boot | — |
 | `thunderbolt-tune` | TB IRQ / RPS / busy-poll | [../network.md](../network.md) |
-| `caddy` | Web server | [../post-install.md](../post-install.md) |
-| `ollama` | LLM inference | [../post-install.md](../post-install.md) |
+| `caddy` | Web server | — |
+| `ollama` | LLM inference | — |
 | `chrony` | NTP time sync | — |
 | `irqbalance` | IRQ distribution across CPUs | — |
 | `lm-sensors` | Hardware monitoring | — |
