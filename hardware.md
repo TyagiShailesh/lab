@@ -13,20 +13,20 @@
 | Thunderbolt | 2× Thunderbolt 5 + 1× Thunderbolt 4 (USB Type-C) |
 | WiFi | Wi-Fi 7 (802.11be) 2×2 + Bluetooth 5.4 |
 | WireGuard | wg0 (10.0.0.1/30) |
-| Kernel | 6.19.10 (PREEMPT_DYNAMIC) |
+| Kernel | 7.0.0 (PREEMPT_DYNAMIC) |
 | OS | Ubuntu 24.04 (XFS root) |
 
 ## Slots and drives
 
 | Slot | Drive | Model | Size | Role | Filesystem | Mount |
 |---|---|---|---|---|---|---|
-| M.2_1 (Gen5, CPU) | Samsung 9100 Pro | Samsung SSD 9100 PRO 1TB (S7YENJ0L200013T) | 1 TB | bcachefs SSD tier (label: ssd, `data_allowed=journal,user`) | bcachefs | `/store` |
-| M.2_2 (Gen4, chipset) | Samsung 990 Pro | Samsung SSD 990 PRO 2TB (S7KHNU0Y517886B) | 2 TB | Boot | XFS (root) + vfat (EFI) | `/` + `/boot/efi` |
+| M.2_1 (Gen5, CPU) | Samsung 9100 Pro | Samsung SSD 9100 PRO 1TB (S7YENJ0L200013T) | 1 TB | Boot + hot model cache | XFS (root) + vfat (EFI) | `/` + `/boot/efi` |
+| M.2_2 (Gen4, chipset) | Samsung 990 Pro | Samsung SSD 990 PRO 2TB (S7KHNU0Y517886B) | 2 TB | bcachefs SSD tier (label: ssd, `data_allowed=journal,user`) | bcachefs | `/nas` |
 | M.2_3 (Gen4, chipset) | — | — | — | Empty | — | — |
-| M.2_4 (Gen4, chipset) | WD Black SN850X | WD_BLACK SN850X HS 2000GB (24364L800813) | 2 TB | bcachefs SSD tier (label: ssd, `data_allowed=journal,user`) | bcachefs | `/store` |
+| M.2_4 (Gen4, chipset) | WD Black SN850X | WD_BLACK SN850X HS 2000GB (24364L800813) | 2 TB | bcachefs SSD tier (label: ssd, `data_allowed=journal,user`) | bcachefs | `/nas` |
 | M.2_5 (Gen4, chipset) | — | — | — | Empty (shares BW with PCIe 4.0 x16) | — | — |
-| SATA 0 | Seagate Exos | ST14000NM000J-2TX103 | 14 TB | bcachefs HDD tier (label: hdd, `data_allowed=btree,user`) | bcachefs | `/store` |
-| SATA 1 | Seagate Exos | ST14000NM001G-2KJ103 | 14 TB | bcachefs HDD tier (label: hdd, `data_allowed=btree,user`) | bcachefs | `/store` |
+| SATA 0 | Seagate Exos | ST14000NM000J-2TX103 | 14 TB | bcachefs HDD tier (label: hdd, `data_allowed=btree,user`) | bcachefs | `/nas` |
+| SATA 1 | Seagate Exos | ST14000NM001G-2KJ103 | 14 TB | bcachefs HDD tier (label: hdd, `data_allowed=btree,user`) | bcachefs | `/nas` |
 
 Pool design and per-device rationale: [bcachefs.md](bcachefs.md).
 
@@ -41,5 +41,5 @@ Pool design and per-device rationale: [bcachefs.md](bcachefs.md).
 ## BIOS
 
 Current: **3002** (2026-01-30).
-Firmware at `/store/data/asus/`.
-User manual: `/store/data/asus/E27671_ProArt_Z890-CREATOR_WIFI_EM_V4_WEB.pdf`
+Firmware at `/nas/data/asus/`.
+User manual: `/nas/data/asus/E27671_ProArt_Z890-CREATOR_WIFI_EM_V4_WEB.pdf`

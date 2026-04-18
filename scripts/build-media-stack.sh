@@ -53,9 +53,13 @@ echo "=== nv-codec-headers 13.0.19.0 ==="
 git clone --depth 1 --branch n13.0.19.0 https://github.com/FFmpeg/nv-codec-headers.git
 make -C nv-codec-headers PREFIX="$PREFIX" install
 
-echo "=== ffmpeg (latest git) ==="
-git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git
-cd ffmpeg
+echo "=== ffmpeg 8.1 (official release tarball) ==="
+wget -q https://ffmpeg.org/releases/ffmpeg-8.1.tar.xz
+tar xf ffmpeg-8.1.tar.xz
+cd ffmpeg-8.1
+# Auto-detect is off for niche/unused features — FFmpeg would otherwise
+# link against whatever -dev package the rootfs happens to have, and any
+# downstream (e.g. iris/media-libav) would need matching -dev at link time.
 ./configure \
   --prefix="$PREFIX" \
   --enable-gpl \
@@ -75,7 +79,23 @@ cd ffmpeg
   --enable-cuda-nvcc \
   --enable-ffnvcodec \
   --enable-cuvid \
-  --enable-amf \
+  --disable-libgme \
+  --disable-librist \
+  --disable-libzmq \
+  --disable-librabbitmq \
+  --disable-libssh \
+  --disable-libbluray \
+  --disable-libjack \
+  --disable-libcdio \
+  --disable-libdc1394 \
+  --disable-libopenmpt \
+  --disable-libtheora \
+  --disable-libtwolame \
+  --disable-libshine \
+  --disable-libsrt \
+  --disable-libmysofa \
+  --disable-libxml2 \
+  --disable-vdpau \
   --extra-cflags="-I/usr/local/cuda/include -I$PREFIX/include" \
   --extra-ldflags="-L/usr/local/cuda/lib64 -L$PREFIX/lib"
 make -j"$JOBS"

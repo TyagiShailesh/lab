@@ -2,7 +2,7 @@
 
 Storage server + NVIDIA compute box (CUDA, NVENC, GDS).
 
-ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake) / 64 GB RAM / Ubuntu 24.04 / Kernel 6.19.10
+ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake) / 64 GB RAM / Ubuntu 24.04 / Kernel 7.0.0
 
 ## Status
 
@@ -31,7 +31,7 @@ ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake) / 64 GB RAM 
 - [thunderbolt.md](thunderbolt.md) — Thunderbolt runbook
 - [thunderbolt-upstream.md](thunderbolt-upstream.md) — page_pool RX upstream work
 - [post-install.md](post-install.md) — OS bring-up runbook
-- [migrate-bcachefs.md](migrate-bcachefs.md) — one-time pool migration (delete after run)
+- [migrate-bcachefs.md](migrate-bcachefs.md) — historical: one-time SSD-split + `data_allowed` pool redesign (2026-04-18). Predates the `/store` → `/nas` rename.
 - [kernel/](kernel/) — custom kernel build pipeline (scripts + config + patches)
 - [scripts/](scripts/) — runnable tools (FFmpeg encoders, media stack builder)
 

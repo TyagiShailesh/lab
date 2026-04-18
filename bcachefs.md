@@ -1,6 +1,6 @@
 # bcachefs on lab (192.168.1.10)
 
-Single reference for how `/store` is built, mounted, and maintained. **Samba paths and light summary:** [storage.md](storage.md). **Kernel build pipeline:** [kernel/README.md](kernel/README.md), [kernel/build-kernel.sh](kernel/build-kernel.sh). **One-time migration to this layout:** [migrate-bcachefs.md](migrate-bcachefs.md).
+Single reference for how `/nas` is built, mounted, and maintained. **Samba paths and light summary:** [storage.md](storage.md). **Kernel build pipeline:** [kernel/README.md](kernel/README.md), [kernel/build-kernel.sh](kernel/build-kernel.sh). **Historical migrations:** [migrate-bcachefs.md](migrate-bcachefs.md) (SSD-split + data_allowed redesign).
 
 ---
 
@@ -22,10 +22,10 @@ Hardware is final — this is the single intended layout, not a "plan."
 
 | Path | Role |
 |------|------|
-| `/store` | Bulk storage: media, user data, Time Machine, backups, model files, firmware archives |
-| `/var/iris` | Iris service working dir (root-run). Local to boot SSD; not on bcachefs. |
+| `/nas` | Bulk storage: media, user data, Time Machine, backups, model files, firmware archives |
+| `/var/iris` | Iris service working dir. Local to boot SSD (9100); not on bcachefs. |
 
-All Samba shares live under `/store` except `iris`, which is served from `/var/iris` ([storage.md](storage.md)).
+All Samba shares live under `/nas` except `iris`, which is served from `/var/iris` ([storage.md](storage.md)).
 
 bcachefs is **not** in the mainline kernel tree for this lab; it ships as an **out-of-tree module** built from [koverstreet/bcachefs-tools](https://github.com/koverstreet/bcachefs-tools) pinned to the same tag as the userspace `bcachefs` binary ([kernel/build-kernel.sh](kernel/build-kernel.sh)).
 
@@ -35,7 +35,7 @@ bcachefs is **not** in the mainline kernel tree for this lab; it ships as an **o
 
 ```
                 ┌───────────────────────────────────────────┐
-                │  bcachefs single filesystem (/store)      │
+                │  bcachefs single filesystem (/nas)        │
                 └───────────────────────────────────────────┘
                                     │
          ┌──────────────────────────┼──────────────────────────┐
@@ -102,9 +102,9 @@ Kernel names (`sda`, `nvme2n1`) **change across reboots**. Always use **`/dev/di
 | Data (HDD) | Seagate Exos ST14000NM000J | 14 TB | `hdd` | 1 | `btree,user` | `ata-ST14000NM000J-2TX103_ZR900CTB` |
 | Data (HDD) | Seagate Exos ST14000NM001G | 14 TB | `hdd` | 1 | `btree,user` | `ata-ST14000NM001G-2KJ103_ZLW212GF` |
 | Cache (NVMe) | WD_BLACK SN850X HS | 2 TB | `ssd` | 1 | `journal,user` | `nvme-WD_BLACK_SN850X_HS_2000GB_24364L800813` |
-| Cache (NVMe) | Samsung 9100 Pro | 1 TB | `ssd` | 1 | `journal,user` | `nvme-Samsung_SSD_9100_PRO_1TB_S7YENJ0L200013T` |
+| Cache (NVMe) | Samsung 990 Pro | 2 TB | `ssd` | 1 | `journal,user` | `nvme-Samsung_SSD_990_PRO_2TB_S7KHNU0Y517886B` |
 
-PCIe topology (latency): 9100 on CPU-direct Gen5; SN850X on chipset path — relevant for raw benchmarks, less for long-term durability design.
+Both SSDs live on the chipset Gen4 path (M.2_2 + M.2_4), symmetric — replicated writes are not bounded by the slower partner. The 9100 Pro on M.2_1 (Gen5 CPU-direct) is deliberately **outside** the pool: it's the boot drive + hot model cache for inference workloads; using it as a pool member capped its Gen5 bandwidth at the slower SSD's Gen4 speed.
 
 ---
 
@@ -113,7 +113,7 @@ PCIe topology (latency): 9100 on CPU-direct Gen5; SN850X on chipset path — rel
 - **Filesystem UUID** (mount, identify): get with `bcachefs show-super /dev/disk/by-id/<member>` → `External UUID` / filesystem id.
 - **Members** are tracked by **per-device UUIDs** in the superblock, not by `sda`/`nvme2n1`. As long as the block device appears (any name), bcachefs assembles the pool.
 
-**Recommended mount:** `UUID=<fs-uuid> /store bcachefs ...` so adding/removing devices does not require editing device lists. Colon-separated device lists still work for discovery.
+**Recommended mount:** `UUID=<fs-uuid> /nas bcachefs ...` so adding/removing devices does not require editing device lists. Colon-separated device lists still work for discovery.
 
 ---
 
@@ -123,15 +123,15 @@ Root filesystem may use kernel cmdline; **bcachefs is not in `/etc/fstab`** on t
 
 | Item | Location |
 |------|----------|
-| Unit | `/etc/systemd/system/bcachefs-store.service` |
-| Enable | `systemctl enable bcachefs-store.service` |
+| Unit | `/etc/systemd/system/nas.service` |
+| Enable | `systemctl enable nas.service` |
 | Wants | `multi-user.target` |
 
 **Target unit (by-id, all four members):**
 
 ```ini
 [Unit]
-Description=Mount BcacheFS storage pool
+Description=NAS storage pool
 # Prefer Wants= over Requires= so a missing disk does not block the entire boot.
 After=systemd-modules-load.service
 
@@ -143,9 +143,9 @@ ExecStart=/usr/bin/mount -t bcachefs \
   /dev/disk/by-id/ata-ST14000NM000J-2TX103_ZR900CTB:\
 /dev/disk/by-id/ata-ST14000NM001G-2KJ103_ZLW212GF:\
 /dev/disk/by-id/nvme-WD_BLACK_SN850X_HS_2000GB_24364L800813:\
-/dev/disk/by-id/nvme-Samsung_SSD_9100_PRO_1TB_S7YENJ0L200013T \
-  -o version_upgrade=none /store
-ExecStop=/usr/bin/umount /store
+/dev/disk/by-id/nvme-Samsung_SSD_990_PRO_2TB_S7KHNU0Y517886B \
+  -o version_upgrade=none /nas
+ExecStop=/usr/bin/umount /nas
 
 [Install]
 WantedBy=multi-user.target
@@ -156,8 +156,8 @@ WantedBy=multi-user.target
 **Stop / start:**
 
 ```bash
-systemctl stop bcachefs-store    # umount /store
-systemctl start bcachefs-store   # modprobe + mount
+systemctl stop nas    # umount /nas
+systemctl start nas   # modprobe + mount
 ```
 
 ---
@@ -181,7 +181,7 @@ Build steps (summary):
 
 Kernel `.config` enables dependencies used by bcachefs (e.g. `CRYPTO_LZ4`, `CRYPTO_LZ4HC`, `BLK_DEV_INTEGRITY`) — see `build-kernel.sh` `scripts/config` block.
 
-**Rust:** upstream warns that future bcachefs may require `CONFIG_RUST` in the kernel; monitor release notes.
+**Rust:** upstream bcachefs is moving toward requiring `CONFIG_RUST` in the kernel. `kernel/build-kernel.sh` enables `CONFIG_RUST` via `scripts/config` and relies on `RUST_IS_AVAILABLE` to turn it on once the host has `rustc` + `rust-src` + `bindgen-cli` + `libclang-dev`.
 
 ---
 
@@ -189,8 +189,8 @@ Kernel `.config` enables dependencies used by bcachefs (e.g. `CRYPTO_LZ4`, `CRYP
 
 ```bash
 # Pool usage and replication breakdown
-bcachefs fs usage -h /store
-bcachefs fs usage -h -a /store          # all accounting: btree, devices, compression, etc.
+bcachefs fs usage -h /nas
+bcachefs fs usage -h -a /nas          # all accounting: btree, devices, compression, etc.
 
 # Superblock / options
 bcachefs show-super /dev/disk/by-id/<member>
@@ -200,7 +200,7 @@ bcachefs show-super /dev/disk/by-id/<member>
 # tool version via `bcachefs device --help` / `bcachefs set-option --help`).
 
 # Rebalance / reconcile progress (name varies with version)
-bcachefs fs usage -h -a /store          # look at dirty / cached / reconciled accounting
+bcachefs fs usage -h -a /nas          # look at dirty / cached / reconciled accounting
 ```
 
 ---
@@ -219,7 +219,7 @@ bcachefs show-super /dev/disk/by-id/ata-ST14000NM000J-2TX103_ZR900CTB \
   | grep -E 'replicas|target|compression'
 
 # Live accounting — btree should sit on hdd devices only, journal on ssd only
-bcachefs fs usage -h -a /store
+bcachefs fs usage -h -a /nas
 ```
 
 Expected:
@@ -250,7 +250,8 @@ Expected:
 | Date | Note |
 |------|------|
 | 2026-04-18 | Executed the pool redesign from [migrate-bcachefs.md](migrate-bcachefs.md): 9100 Pro added as second SSD; HDDs `data_allowed=btree,user` (metadata truth), SSDs `data_allowed=journal,user` (hot-path + fsync), all devices `durability=1`, SN850X dropped 2→1. `/cache` decommissioned — iris → `/var/iris`, models → `/store/models`. |
-| 2026-04-18 | Plan change: 9100 Pro removed from pool (Gen5 lane wasted as replicated-pool member bounded by SN850X); 9100 reassigned to be the new boot drive + models cache. 990 Pro 2 TB will replace it in the pool once the OS is on the 9100. Pool is temporarily 3 devices (2× HDD + SN850X). `/store` → `/nas` rename follows. Runbook: [migrate-9100.md](migrate-9100.md). |
+| 2026-04-18 | Plan change: 9100 Pro removed from pool (Gen5 lane wasted as replicated-pool member bounded by SN850X); 9100 reassigned to be the new boot drive + models cache. 990 Pro 2 TB will replace it in the pool once the OS is on the 9100. Pool is temporarily 3 devices (2× HDD + SN850X). `/store` → `/nas` rename follows. |
+| 2026-04-18 | Migration complete: OS built on 9100 (kernel 7.0, XFS root), 990 Pro wiped and added to pool as second `ssd` member (dev 4), `/store` → `/nas`, `bcachefs-store.service` → `nas.service`. Pool is now 4 symmetric devices: 2× Exos HDD + 990 + SN850X (both SSDs on Gen4 chipset path). |
 | 2026-04 | Replaced `ssd-swap.md` with this doc. |
 
 When you change replication, devices, `data_allowed`, or the unit file, add a one-line entry here.

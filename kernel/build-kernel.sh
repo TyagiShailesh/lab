@@ -30,6 +30,13 @@ nvidia_fs_tag=v2.28.2
 # Ensure cargo is in PATH (rustup installs to ~/.cargo/bin)
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
+# For CONFIG_RUST=y (required by bcachefs in future kernels): host toolchain needs
+# rustc + rust-src + bindgen-cli + libclang-dev. Kconfig's RUST_IS_AVAILABLE
+# auto-detects; if any piece is missing, CONFIG_RUST silently stays off.
+#   rustup default stable && rustup component add rust-src
+#   cargo install --locked bindgen-cli
+#   apt install -y libclang-dev
+
 # Directory layout: src/ = downloaded sources, build/ = build tree + staging
 mkdir -p src build/kernel build/staging/boot build/staging/usr images
 
@@ -88,7 +95,8 @@ make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
   --disable CMDLINE_OVERRIDE \
   --enable MEMORY_HOTPLUG --enable MEMORY_HOTREMOVE --enable ZONE_DEVICE \
   --enable PCI_P2PDMA \
-  --enable DMABUF_MOVE_NOTIFY
+  --enable DMABUF_MOVE_NOTIFY \
+  --enable RUST
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
 
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- -j"$(nproc)" bzImage modules

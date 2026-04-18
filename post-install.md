@@ -24,9 +24,16 @@ Netplan bridge (`br0`), Thunderbolt tuning service, WireGuard, sysctl — full c
 
 ## 3. Samba
 
+Install `samba` + `samba-vfs-modules` (the base `samba` package on Ubuntu 24.04 **does not** pull in the VFS plugins; without `streams_xattr.so` every share mount fails silently with `NT_STATUS_LOGON_FAILURE` / "original item … can't be found" from Finder).
+
+```bash
+apt install -y samba samba-vfs-modules
+```
+
 ```bash
 cat > /etc/samba/smb.conf << 'EOF'
 [global]
+   netbios name = nas
    workgroup = WORKGROUP
    server role = standalone server
    disable netbios = yes
@@ -51,7 +58,7 @@ cat > /etc/samba/smb.conf << 'EOF'
    dos charset = CP437
 
 [media]
-   path = /store/media
+   path = /nas/media
    valid users = st
    force user = st
    read only = no
@@ -60,7 +67,7 @@ cat > /etc/samba/smb.conf << 'EOF'
    inherit permissions = no
 
 [st]
-   path = /store/st
+   path = /nas/st
    valid users = st
    force user = st
    read only = no
@@ -69,7 +76,7 @@ cat > /etc/samba/smb.conf << 'EOF'
    inherit permissions = no
 
 [tm]
-   path = /store/tm
+   path = /nas/tm
    valid users = st
    read only = no
    vfs objects = catia fruit streams_xattr
@@ -77,7 +84,7 @@ cat > /etc/samba/smb.conf << 'EOF'
    fruit:time machine max size = 4000G
 
 [data]
-   path = /store/data
+   path = /nas/data
    valid users = st
    force user = st
    read only = no
@@ -89,9 +96,10 @@ cat > /etc/samba/smb.conf << 'EOF'
    path = /var/iris
    valid users = st
    force user = st
+   force group = iris
    read only = no
-   create mask = 0600
-   directory mask = 0700
+   create mask = 0660
+   directory mask = 2770
    inherit permissions = no
 EOF
 
@@ -109,9 +117,9 @@ One-time migration from the legacy single-SSD layout: [migrate-bcachefs.md](migr
 Steady-state unit (by-id, all four members):
 
 ```bash
-cat > /etc/systemd/system/bcachefs-store.service << 'EOF'
+cat > /etc/systemd/system/nas.service << 'EOF'
 [Unit]
-Description=Mount BcacheFS storage pool
+Description=NAS storage pool
 # Wants= (not Requires=) so a missing disk doesn't block boot
 After=systemd-modules-load.service
 
@@ -123,25 +131,24 @@ ExecStart=/usr/bin/mount -t bcachefs \
   /dev/disk/by-id/ata-ST14000NM000J-2TX103_ZR900CTB:\
 /dev/disk/by-id/ata-ST14000NM001G-2KJ103_ZLW212GF:\
 /dev/disk/by-id/nvme-WD_BLACK_SN850X_HS_2000GB_24364L800813:\
-/dev/disk/by-id/nvme-Samsung_SSD_9100_PRO_1TB_S7YENJ0L200013T \
-  -o version_upgrade=none /store
-ExecStop=/usr/bin/umount /store
+/dev/disk/by-id/nvme-Samsung_SSD_990_PRO_2TB_S7KHNU0Y517886B \
+  -o version_upgrade=none /nas
+ExecStop=/usr/bin/umount /nas
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-systemctl enable --now bcachefs-store
+systemctl enable --now nas
 
 # Share directories on the pool
-mkdir -p /store/media /store/st /store/data /store/tm /store/models
-chown st:st /store/media /store/st /store/data /store/tm /store/models
+mkdir -p /nas/media /nas/st /nas/data /nas/tm /nas/models
+chown st:st /nas/media /nas/st /nas/data /nas/tm /nas/models
 
-# iris lives on /var/iris (boot SSD), written by the root-run iris service
-mkdir -p /var/iris
-chgrp -R st /var/iris
-chmod -R g+rwX,o-rwx /var/iris
-find /var/iris -type d -exec chmod g+s {} +
+# iris service user + /var/iris (on boot SSD, not bcachefs)
+useradd -r -s /usr/sbin/nologin -G video,render iris
+gpasswd -a st iris                              # st needs iris group for SMB share
+install -d -m 2770 -o iris -g iris /var/iris    # setgid so new files inherit iris group
 ```
 
 ### bcachefs filesystem options (verify after any policy change)
@@ -219,15 +226,15 @@ Mac DaVinci Resolve sees Samba mounts at `/Volumes/...`; mirror those paths loca
 
 ```bash
 mkdir -p /Volumes
-ln -sf /store/media /Volumes/media
-ln -sf /store/st /Volumes/st
+ln -sf /nas/media /Volumes/media
+ln -sf /nas/st /Volumes/st
 ```
 
 ## 11. Verify
 
 ```bash
 # Storage
-bcachefs fs usage -h /store
+bcachefs fs usage -h /nas
 # Per-device options — see bcachefs.md §10 for the full checklist
 
 # Network
@@ -235,7 +242,7 @@ ip addr show br0
 iperf3 -s &  # then test from Mac
 
 # Services
-systemctl status bcachefs-store smbd postgresql avahi-daemon wg-quick@wg0 cpu-performance thunderbolt-tune caddy ollama
+systemctl status nas smbd postgresql avahi-daemon wg-quick@wg0 cpu-performance thunderbolt-tune caddy ollama
 
 # Samba
 smbclient -L //localhost -U st

@@ -8,7 +8,7 @@ Port:    5432
 User:    resolve / <password>
 DB:      nas
 Auth:    scram-sha-256 from 192.168.1.0/24
-Backup:  /store/media/resolve/backup/   (nightly 3am, 30-day retention)
+Backup:  /nas/media/resolve/backup/   (nightly 3am, 30-day retention)
 ```
 
 ---
@@ -41,18 +41,18 @@ sudo -u postgres psql -c "ALTER USER resolve PASSWORD '<password>';"
 
 ## Backup cron
 
-Nightly `pg_dumpall` into `/store/media/resolve/backup/`. 30-day retention.
+Nightly `pg_dumpall` into `/nas/media/resolve/backup/`. 30-day retention.
 
 ```bash
 cat > /etc/cron.d/postgres-backup << 'EOF'
 # Nightly PostgreSQL backup (on bcachefs pool)
-0 3 * * * postgres pg_dumpall -f /store/media/resolve/backup/resolve_latest.sql && cp /store/media/resolve/backup/resolve_latest.sql /store/media/resolve/backup/resolve_$(date +\%Y\%m\%d).sql
+0 3 * * * postgres pg_dumpall -f /nas/media/resolve/backup/resolve_latest.sql && cp /nas/media/resolve/backup/resolve_latest.sql /nas/media/resolve/backup/resolve_$(date +\%Y\%m\%d).sql
 # Keep last 30 days
-5 3 * * * postgres find /store/media/resolve/backup -name 'resolve_2*.sql' -mtime +30 -delete
+5 3 * * * postgres find /nas/media/resolve/backup -name 'resolve_2*.sql' -mtime +30 -delete
 EOF
 
-mkdir -p /store/media/resolve/backup
-chown postgres:postgres /store/media/resolve/backup
+mkdir -p /nas/media/resolve/backup
+chown postgres:postgres /nas/media/resolve/backup
 ```
 
 ---

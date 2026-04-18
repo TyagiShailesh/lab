@@ -16,31 +16,30 @@ Topic docs:
 
 | | |
 |---|---|
-| Running | 6.19.10 (`SMP PREEMPT_DYNAMIC`) |
-| Fallback | 6.19.9 |
+| Running | 7.0.0 (`SMP PREEMPT_DYNAMIC`) |
+| Fallback | (none — retired 6.19.x entries when 9100 boot was validated) |
 | Boot | EFISTUB direct — UEFI firmware loads `bzImage`, no bootloader |
-| cmdline | `root=PARTUUID=204dd2f7-381a-47a8-bc8d-c2dff520e914 rw` + embedded `iommu=pt nvme.poll_queues=4` via `CONFIG_CMDLINE` |
+| cmdline | `root=PARTUUID=e5647d0c-b88a-4f30-919e-736dc3e841e8 rw` + embedded `iommu=pt nvme.poll_queues=4` via `CONFIG_CMDLINE` |
 
 ### Boot sequence
 
 ```
 UEFI firmware
-  └── EFISTUB: \linux-6.19.10 on EFI partition
-        └── cmdline: root=PARTUUID=204dd2f7-... rw
+  └── EFISTUB: \linux-7.0 on EFI partition (nvme0n1p1, the Samsung 9100 Pro)
+        └── cmdline: root=PARTUUID=e5647d0c-... rw
               └── Kernel boots directly (monolithic, no initramfs)
                     └── XFS root mounted (built-in)
                           └── systemd starts
-                                └── bcachefs-store.service mounts /store
+                                └── nas.service mounts /nas (bcachefs pool)
 ```
 
 ### EFI boot entries
 
 ```
-Boot0005* Linux 6.19.10 → \linux-6.19.10  (current)
-Boot0001* Linux 6.19.9  → \linux-6.19.9   (fallback)
+Boot0006* Linux 7.0 → \linux-7.0  (current — on Samsung 9100 Pro)
 ```
 
-Kernel images live directly on the EFI partition (`/boot/efi/`). Managed by `efibootmgr`.
+Kernel images live directly on the EFI partition (`/boot/efi/`). Managed by `efibootmgr`. Old 6.19.9/6.19.10 entries on the 990 Pro were deleted after the 9100 boot was validated and the 990 was wiped and added to the bcachefs pool.
 
 ### Key kernel config rules
 
@@ -63,7 +62,7 @@ Kernel images live directly on the EFI partition (`/boot/efi/`). Managed by `efi
 | Module | `/usr/lib/modules/<kver>/kernel/fs/bcachefs/bcachefs.ko` |
 | Version | Pinned tag from [koverstreet/bcachefs-tools](https://github.com/koverstreet/bcachefs-tools) (see `build-kernel.sh`) |
 | Autoload | `/etc/modules-load.d/bcachefs.conf` |
-| Service load | `bcachefs-store.service` runs `modprobe bcachefs` before mount |
+| Service load | `nas.service` runs `modprobe bcachefs` before mount |
 | Userspace tools | `/usr/local/sbin/bcachefs` (built from same repo) |
 
 Taint on load: `bcachefs: loading out-of-tree module taints kernel.`
@@ -146,7 +145,7 @@ images/             → output tarballs — gitignored
 
 | Service | Purpose | Ref |
 |---|---|---|
-| `bcachefs-store` | Mount bcachefs pool at `/store` | [../bcachefs.md](../bcachefs.md) |
+| `nas` | Mount bcachefs pool at `/nas` | [../bcachefs.md](../bcachefs.md) |
 | `smbd` / `nmbd` | Samba file sharing | [../storage.md](../storage.md) |
 | `postgresql` | Mac DaVinci Resolve project DB | [../postgres.md](../postgres.md) |
 | `avahi-daemon` | mDNS (lab.local) | — |
@@ -164,11 +163,11 @@ images/             → output tarballs — gitignored
 
 ## OS
 
-Ubuntu 24.04.4 LTS (Noble Numbat), XFS root on Samsung 990 Pro 2 TB.
+Ubuntu 24.04.4 LTS (Noble Numbat), XFS root on Samsung 9100 Pro 1 TB.
 
 ```
-/dev/nvme0n1p1   1G    vfat   /boot/efi
-/dev/nvme0n1p2   1.8T  xfs    /
+/dev/nvme0n1p1   1G      vfat   /boot/efi
+/dev/nvme0n1p2   930 GiB xfs    /
 ```
 
 `fstab` only has the EFI partition. Root is passed via kernel cmdline. bcachefs is mounted by systemd service — see [../bcachefs.md §7](../bcachefs.md#7-boot-and-systemd-not-fstab).
