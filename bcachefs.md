@@ -249,7 +249,8 @@ Expected:
 
 | Date | Note |
 |------|------|
-| 2026-04-18 | Redesigned pool: 9100 Pro joins as second SSD; HDDs `data_allowed=btree,user` (metadata truth), SSDs `data_allowed=journal,user` (hot-path + fsync), all devices `durability=1`. SN850X dropped from `durability=2` to `1`. Old `/cache` XFS decommissioned — iris → `/var/iris`, models → `/store/models`. One-time transition in [migrate-bcachefs.md](migrate-bcachefs.md). |
+| 2026-04-18 | Executed the pool redesign from [migrate-bcachefs.md](migrate-bcachefs.md): 9100 Pro added as second SSD; HDDs `data_allowed=btree,user` (metadata truth), SSDs `data_allowed=journal,user` (hot-path + fsync), all devices `durability=1`, SN850X dropped 2→1. `/cache` decommissioned — iris → `/var/iris`, models → `/store/models`. |
+| 2026-04-18 | Plan change: 9100 Pro removed from pool (Gen5 lane wasted as replicated-pool member bounded by SN850X); 9100 reassigned to be the new boot drive + models cache. 990 Pro 2 TB will replace it in the pool once the OS is on the 9100. Pool is temporarily 3 devices (2× HDD + SN850X). `/store` → `/nas` rename follows. Runbook: [migrate-9100.md](migrate-9100.md). |
 | 2026-04 | Replaced `ssd-swap.md` with this doc. |
 
 When you change replication, devices, `data_allowed`, or the unit file, add a one-line entry here.

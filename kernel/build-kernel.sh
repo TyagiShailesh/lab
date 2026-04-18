@@ -8,7 +8,10 @@ cd "$(dirname "$0")"
 
 src=https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.tar.xz
 pkg=$(basename "$src" .tar.xz)
-kver=${pkg#linux-}
+# kver is set later from the actual kernel KERNELRELEASE (see below).
+# Don't use the tarball-name fallback — for a "linux-7.0" source,
+# KERNELRELEASE is "7.0.0" (SUBLEVEL=0, EXTRAVERSION=""), so OOT modules
+# must go in /usr/lib/modules/7.0.0/ to match stock `modules_install`.
 
 # bcachefs out-of-tree module + tools (pinned tag — must match)
 bcachefs_repo=https://github.com/koverstreet/bcachefs-tools.git
@@ -90,6 +93,11 @@ make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
 
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- -j"$(nproc)" bzImage modules
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- INSTALL_MOD_PATH="$(pwd)/$staging"/usr modules_install
+
+# Derive kver from the directory `modules_install` just created.
+# This is the authoritative KERNELRELEASE — OOT modules below MUST land here.
+kver=$(basename "$(ls -d "$staging"/usr/lib/modules/*/ | head -1)")
+echo "=== kver=$kver ==="
 
 cp "$build"/arch/x86_64/boot/bzImage "$staging"/boot/$pkg
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- INSTALL_HDR_PATH="$(pwd)/$staging"/usr headers_install
