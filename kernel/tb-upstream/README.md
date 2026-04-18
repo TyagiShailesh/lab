@@ -1,6 +1,6 @@
 # Submitting the thunderbolt_net page_pool patch
 
-Step-by-step to send `0001-net-thunderbolt_net-convert-Rx-path-to-page_pool.patch`
+Step-by-step to send `0001-net-thunderbolt-convert-Rx-path-to-page_pool.patch`
 upstream. Do this from the `st@samespace.com` mail client.
 
 ## 1. Regenerate the patch against current net-next
@@ -11,12 +11,12 @@ The formatted patch needs an up-to-date `base-commit:` trailer. From
 ```bash
 git fetch origin
 git checkout -B tbnet-page-pool origin/main
-git am /root/lab/kernel/tb-upstream/0001-net-thunderbolt_net-convert-Rx-path-to-page_pool.patch
+git am /root/lab/kernel/tb-upstream/0001-net-thunderbolt-convert-Rx-path-to-page_pool.patch
 ./scripts/checkpatch.pl --strict -g HEAD          # must be clean
-git format-patch --base=auto -o /tmp/tbnet-out origin/main
+git format-patch --base=auto --subject-prefix="PATCH net-next" -o /tmp/tbnet-out origin/main
 ```
 
-Output: `/tmp/tbnet-out/0001-net-thunderbolt_net-convert-Rx-path-to-page_pool.patch`.
+Output: `/tmp/tbnet-out/0001-net-thunderbolt-convert-Rx-path-to-page_pool.patch`.
 
 If `git am` fails with a conflict, the upstream driver has changed — rebase
 manually, re-run `checkpatch.pl`, regenerate.
@@ -49,7 +49,7 @@ Current list (as of net-next `1f5ffc672165`):
 **Subject** (copy exactly):
 
 ```
-[PATCH] net: thunderbolt_net: convert Rx path to page_pool
+[PATCH net-next] net: thunderbolt: convert Rx path to page_pool
 ```
 
 **Body**: open the `.patch` file. Copy everything **starting from the blank

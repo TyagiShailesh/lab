@@ -50,7 +50,7 @@ if [ ! -f "$build/Makefile" ]; then
 
   # Apply out-of-tree patches. Kept inside the extract block so repeated
   # build-kernel.sh runs don't double-apply.
-  for p in patches/*.patch; do
+  for p in tb-upstream/*.patch; do
     [ -f "$p" ] || continue
     echo "=== Applying $p ==="
     patch -d "$build" -p1 < "$p"
