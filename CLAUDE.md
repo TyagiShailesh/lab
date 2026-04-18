@@ -6,7 +6,7 @@
 - SSH access: `ssh 192.168.1.10` (root)
 - bcachefs pool mounted at `/store`
 - Samba shares: media, st, data, iris, tm
-- Docs: system/ (kernel build + config + post-install), hardware.md, storage.md, gpu.md, resolve.md, upgrade-plan.md
+- Docs: [README.md](README.md) has the full index. Key files: [bcachefs.md](bcachefs.md) (pool architecture + mount + module), [hardware.md](hardware.md), [network.md](network.md), [storage.md](storage.md), [postgres.md](postgres.md), [gpu.md](gpu.md), [media.md](media.md), [thunderbolt.md](thunderbolt.md) + [thunderbolt-upstream.md](thunderbolt-upstream.md), [post-install.md](post-install.md), [migrate-bcachefs.md](migrate-bcachefs.md). Kernel build pipeline: [kernel/](kernel/). Runnable tools: [scripts/](scripts/).
 
 ## Arqic + Khor Specs (at /data/code/ws/docs/)
 

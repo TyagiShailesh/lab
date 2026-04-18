@@ -1,41 +1,10 @@
 # Storage
 
-## bcachefs pool
+## bcachefs pool (`/store`)
 
-- **Devices:** 2x HDD (data, mirrored) + 1x NVMe SSD (cache, durability 2)
-- **Mount:** `/store` (via `bcachefs-store.service`)
-- **Replication:** metadata 2, data 2
-- **Compression:** none (foreground), zstd (background — applied during HDD migration)
-- **Tiering:** writes land on SSD uncompressed at full NVMe speed (~2.5 GB/s), background-move to HDD with zstd; reads promote to SSD
-  - `foreground_target: ssd`, `background_target: hdd`, `promote_target: ssd`, `metadata_target: ssd`
-- **Capacity:** ~24 TB raw (14 TB usable after mirroring), 8.4 TB used
+**Full architecture, devices, systemd unit, kernel OOT module, and operational notes:** [bcachefs.md](bcachefs.md).
 
-### Format command (reference)
-
-```bash
-bcachefs format \
-  --label=hdd --durability=1 /dev/sda \
-  --label=hdd --durability=1 /dev/sdb \
-  --label=ssd --durability=2 /dev/nvme1n1 \
-  --metadata_replicas=2 --data_replicas=2 \
-  --compression=none --background_compression=zstd \
-  --foreground_target=ssd --background_target=hdd \
-  --promote_target=ssd --metadata_target=ssd
-```
-
-> Durability is stored in the on-disk superblock — change live with:
-> `echo 2 > /sys/fs/bcachefs/<uuid>/dev-2/durability`
-
-### Measured performance
-
-| Test | Speed |
-|---|---|
-| Sequential read (SSD cache) | 3,393 MB/s |
-| Sequential write (SSD) | 2,345 MB/s |
-| Random 4K read IOPS | 102,000 |
-| Random 4K write IOPS | 618,000 |
-| HDD sequential read | 256 MB/s |
-| HDD sequential write | 249 MB/s |
+**At a glance:** four-device bcachefs — 2× Exos 14 TB (`hdd` label, `durability=1`, metadata + data truth) plus WD SN850X 2 TB and Samsung 9100 Pro 1 TB (`ssd` label, `durability=1`, journal + writeback cache). `data_replicas=2`, `metadata_replicas=2`; `data_allowed` keeps btree off SSDs and journal off HDDs. Mount via `bcachefs-store.service` (not fstab).
 
 ---
 
@@ -46,7 +15,7 @@ bcachefs format \
 | media | `/store/media` | force user: st, 0644/0755 masks |
 | st | `/store/st` | force user: st, 0600/0700 masks |
 | data | `/store/data` | force user: st, 0600/0700 masks |
-| iris | `/cache/iris` | force user: st, 0600/0700 masks, group st rw |
+| iris | `/var/iris` | force user: st, 0600/0700 masks, group st rw. Root-run service; local to boot SSD, not on bcachefs. |
 | tm | `/store/tm` | Time Machine, 4 TB max |
 
 Config: SMB3 minimum, macOS fruit/AAPL extensions enabled, NetBIOS disabled.
@@ -54,20 +23,10 @@ Config: SMB3 minimum, macOS fruit/AAPL extensions enabled, NetBIOS disabled.
 Mac mounts: `smb://lab.local/media` → `/Volumes/media`
 Linux symlinks: `/Volumes/media` → `/store/media`, `/Volumes/st` → `/store/st`
 
-Full smb.conf and service configs: [system/post-install.md](system/post-install.md)
+Full `smb.conf` and service bring-up: [post-install.md](post-install.md).
 
 ---
 
-## PostgreSQL 18
+## PostgreSQL
 
-Installed from official PGDG repo. Data on boot SSD.
-
-```
-Data:    /var/lib/postgresql/18/main/
-Port:    5432
-User:    resolve / resolve
-Auth:    scram-sha-256 from 192.168.1.0/24
-Backup:  /store/media/resolve/backup/ (nightly 3am, 30-day retention)
-```
-
-Install and backup cron setup: [system/post-install.md](system/post-install.md)
+Separate doc: [postgres.md](postgres.md) (used by Mac DaVinci Resolve).

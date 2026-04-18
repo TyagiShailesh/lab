@@ -11,7 +11,7 @@ Rear I/O USB-C ports (from ProArt Z890 manual p.30):
 
 ## Driver
 
-Using standard in-tree `thunderbolt_net`. Previously ran a patched OOT driver with page_pool RX and 1024-entry ring — source is in git history under `system/thunderbolt_net/` (removed in commit b62fe82).
+Using standard in-tree `thunderbolt_net`. Previously ran a patched OOT driver with page_pool RX and 1024-entry ring — source is in git history under `system/thunderbolt_net/` (removed in commit b62fe82; `system/` has since been renamed to `kernel/`). Upstream port plan: [thunderbolt-upstream.md](thunderbolt-upstream.md).
 
 ## Performance (patched OOT driver, TB5 port, iperf3)
 

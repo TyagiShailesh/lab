@@ -6,13 +6,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-src=https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.19.10.tar.xz
+src=https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.tar.xz
 pkg=$(basename "$src" .tar.xz)
 kver=${pkg#linux-}
 
 # bcachefs out-of-tree module + tools (pinned tag — must match)
 bcachefs_repo=https://github.com/koverstreet/bcachefs-tools.git
-bcachefs_tag=v1.37.3
+bcachefs_tag=v1.37.5
 
 # NVIDIA open kernel modules (pinned version — must match userspace libs on target)
 # https://github.com/NVIDIA/open-gpu-kernel-modules/tags
@@ -37,6 +37,14 @@ staging=build/staging
 if [ ! -f "$build/Makefile" ]; then
   echo "=== Downloading kernel source ==="
   wget --no-check-certificate -O- "$src" | tar -xJf - -C "$build" --strip-components=1
+
+  # Apply out-of-tree patches. Kept inside the extract block so repeated
+  # build-kernel.sh runs don't double-apply.
+  for p in patches/*.patch; do
+    [ -f "$p" ] || continue
+    echo "=== Applying $p ==="
+    patch -d "$build" -p1 < "$p"
+  done
 fi
 
 if [ ! -d "src/bcachefs-tools" ]; then
@@ -64,10 +72,7 @@ make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
 "$build"/scripts/config --file "$build/.config" \
   --enable CRYPTO_LZ4 --enable CRYPTO_LZ4HC --enable BLK_DEV_INTEGRITY \
   --enable TCP_CONG_ADVANCED --enable TCP_CONG_BBR --enable NET_SCH_FQ \
-  --module DRM_AMDGPU \
-  --enable DRM_AMDGPU_SI --enable DRM_AMDGPU_CIK --enable DRM_AMDGPU_USERPTR \
-  --enable HSA_AMD --enable HSA_AMD_SVM --enable HSA_AMD_P2P \
-  --enable DRM_AMD_DC --enable DRM_AMD_DC_FP --enable DRM_AMD_DC_SI \
+  --disable DRM_AMDGPU \
   --set-val HZ 1000 --enable HZ_1000 \
   --enable NO_HZ_FULL \
   --enable PREEMPT_DYNAMIC \
@@ -118,6 +123,12 @@ mkdir -p "$staging/usr/local/sbin"
 cp src/bcachefs-tools/bcachefs "$staging/usr/local/sbin/bcachefs"
 
 # --- NVIDIA open kernel modules ---
+# Patch nvidia-open for kernel 7.0: scripts/pahole-flags.sh was replaced by
+# scripts/gen-btf.sh, so the Makefile's wildcard test wrongly injects an awk
+# PAHOLE wrapper that gen-btf.sh mangles. Extend the test to match either.
+# Upstream: NVIDIA/open-gpu-kernel-modules#1041
+sed -i 's|$(wildcard $(KERNEL_SOURCES)/scripts/pahole-flags.sh)|$(or $(wildcard $(KERNEL_SOURCES)/scripts/pahole-flags.sh),$(wildcard $(KERNEL_SOURCES)/scripts/gen-btf.sh))|' \
+  src/nvidia-open/kernel-open/Makefile
 make -C src/nvidia-open KERNEL_UNAME="$kver" SYSSRC="$(pwd)/$build" SYSOUT="$(pwd)/$build" \
   -j"$(nproc)" modules
 

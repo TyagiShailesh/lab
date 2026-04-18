@@ -1,0 +1,297 @@
+From: Shailesh Tyagi <st@samespace.com>
+Subject: [PATCH] net: thunderbolt_net: convert Rx path to page_pool
+
+The thunderbolt_net Rx fast path currently does a dma_map_page() on
+every buffer refill and a matching dma_unmap_page() on every polled
+frame.  On x86 IOMMU configurations this costs ~500 ns per packet and
+is the dominant cost in tbnet_poll() once the per-frame processing
+itself has been optimised; the RX ceiling on a TB5 link is ~20 Gbps
+for a single flow, against ~41 Gbps on TX where the driver does not
+do per-packet unmaps.
+
+Convert the Rx ring to page_pool:
+
+  * allocate an order TBNET_RX_PAGE_ORDER pool in tbnet_open() with
+    PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV so the pool owns the DMA
+    mappings and reuses them across packets;
+  * pp.order == TBNET_RX_PAGE_ORDER preserves the NHI 4 kB-boundary
+    requirement (the first 4 kB of every order-1 page is naturally
+    4 kB-aligned and cannot cross a hardware segment);
+  * tbnet_alloc_rx_buffers() uses page_pool_dev_alloc_pages() and
+    page_pool_get_dma_addr() instead of dev_alloc_pages() +
+    dma_map_page();
+  * tbnet_poll() replaces dma_unmap_page() with
+    page_pool_dma_sync_for_cpu() and, on error, returns the page to
+    the pool with page_pool_put_full_page(.., direct=true) so NAPI-
+    local recycling can take the fast path;
+  * the happy path marks the skb with skb_mark_for_recycle(), so the
+    head page and any frags added by skb_add_rx_frag() are returned
+    to the pool when the skb is freed by the stack;
+  * tbnet_free_buffers() branches on ring direction: the Tx side
+    keeps the existing dma_unmap_page()/__free_pages() pair, and the
+    Rx side returns pages through page_pool_put_full_page(); the
+    pool itself is destroyed in tbnet_stop() after all buffers have
+    been returned by tbnet_tear_down();
+  * TBNET_RING_SIZE is bumped from 256 to 1024 so the pool can
+    absorb longer bursts without having to refill while the device
+    is draining.  This does not change the TBIP wire format; the
+    "frame_count > TBNET_RING_SIZE / 4" guard in tbnet_check_frame()
+    still comfortably bounds a 64 kB packet (<= 16 frames).
+
+Signed-off-by: Shailesh Tyagi <st@samespace.com>
+---
+ drivers/net/thunderbolt/main.c | 121 +++++++++++++++++++++------------
+ 1 file changed, 79 insertions(+), 42 deletions(-)
+
+--- a/drivers/net/thunderbolt/main.c
++++ b/drivers/net/thunderbolt/main.c
+@@ -23,6 +23,8 @@
+ #include <linux/workqueue.h>
+ 
+ #include <net/ip6_checksum.h>
++#include <net/page_pool/helpers.h>
++#include <net/page_pool/types.h>
+ 
+ #include "trace.h"
+ 
+@@ -31,7 +33,7 @@
+ #define TBNET_LOGIN_TIMEOUT	500
+ #define TBNET_LOGOUT_TIMEOUT	1000
+ 
+-#define TBNET_RING_SIZE		256
++#define TBNET_RING_SIZE		1024
+ #define TBNET_LOGIN_RETRIES	60
+ #define TBNET_LOGOUT_RETRIES	10
+ #define TBNET_E2E		BIT(0)
+@@ -174,6 +176,7 @@
+  *	    network packet consists of multiple Thunderbolt frames.
+  *	    In host byte order.
+  * @rx_ring: Software ring holding Rx frames
++ * @rx_pool: Page pool backing @rx_ring for DMA-mapped page recycling
+  * @frame_id: Frame ID use for next Tx packet
+  *            (if %TBNET_MATCH_FRAGS_ID is supported in both ends)
+  * @tx_ring: Software ring holding Tx frames
+@@ -198,6 +201,7 @@
+ 	struct work_struct disconnect_work;
+ 	struct thunderbolt_ip_frame_header rx_hdr;
+ 	struct tbnet_ring rx_ring;
++	struct page_pool *rx_pool;
+ 	atomic_t frame_id;
+ 	struct tbnet_ring tx_ring;
+ };
+@@ -337,32 +341,31 @@
+ 	unsigned int i;
+ 
+ 	for (i = 0; i < TBNET_RING_SIZE; i++) {
+-		struct device *dma_dev = tb_ring_dma_device(ring->ring);
+ 		struct tbnet_frame *tf = &ring->frames[i];
+-		enum dma_data_direction dir;
+-		unsigned int order;
+-		size_t size;
+ 
+ 		if (!tf->page)
+ 			continue;
+ 
+ 		if (ring->ring->is_tx) {
+-			dir = DMA_TO_DEVICE;
+-			order = 0;
+-			size = TBNET_FRAME_SIZE;
+-		} else {
+-			dir = DMA_FROM_DEVICE;
+-			order = TBNET_RX_PAGE_ORDER;
+-			size = TBNET_RX_PAGE_SIZE;
+-		}
+-
+-		trace_tbnet_free_frame(i, tf->page, tf->frame.buffer_phy, dir);
++			struct device *dma_dev = tb_ring_dma_device(ring->ring);
+ 
+-		if (tf->frame.buffer_phy)
+-			dma_unmap_page(dma_dev, tf->frame.buffer_phy, size,
+-				       dir);
++			trace_tbnet_free_frame(i, tf->page, tf->frame.buffer_phy,
++					       DMA_TO_DEVICE);
++			if (tf->frame.buffer_phy)
++				dma_unmap_page(dma_dev, tf->frame.buffer_phy,
++					       TBNET_FRAME_SIZE, DMA_TO_DEVICE);
++			__free_pages(tf->page, 0);
++		} else {
++			struct tbnet *net = container_of(ring, struct tbnet,
++							 rx_ring);
+ 
+-		__free_pages(tf->page, order);
++			trace_tbnet_free_frame(i, tf->page, tf->frame.buffer_phy,
++					       DMA_FROM_DEVICE);
++			/* DMA mapping is owned by the page_pool; do not
++			 * dma_unmap here. The pool unmaps on destroy.
++			 */
++			page_pool_put_full_page(net->rx_pool, tf->page, false);
++		}
+ 		tf->page = NULL;
+ 	}
+ 
+@@ -500,10 +503,8 @@
+ static int tbnet_alloc_rx_buffers(struct tbnet *net, unsigned int nbuffers)
+ {
+ 	struct tbnet_ring *ring = &net->rx_ring;
+-	int ret;
+ 
+ 	while (nbuffers--) {
+-		struct device *dma_dev = tb_ring_dma_device(ring->ring);
+ 		unsigned int index = ring->prod & (TBNET_RING_SIZE - 1);
+ 		struct tbnet_frame *tf = &ring->frames[index];
+ 		dma_addr_t dma_addr;
+@@ -511,23 +512,20 @@
+ 		if (tf->page)
+ 			break;
+ 
+-		/* Allocate page (order > 0) so that it can hold maximum
+-		 * ThunderboltIP frame (4kB) and the additional room for
+-		 * SKB shared info required by build_skb().
++		/* Allocate an order > 0 page so it can hold the maximum
++		 * ThunderboltIP frame (4 kB) plus the skb_shared_info
++		 * required by build_skb(). The NHI DMA engine cannot
++		 * cross a 4 kB boundary, so the pool must use the same
++		 * order to guarantee frames stay within one hardware
++		 * segment.
+ 		 */
+-		tf->page = dev_alloc_pages(TBNET_RX_PAGE_ORDER);
++		tf->page = page_pool_dev_alloc_pages(net->rx_pool);
+ 		if (!tf->page) {
+-			ret = -ENOMEM;
+-			goto err_free;
+-		}
+-
+-		dma_addr = dma_map_page(dma_dev, tf->page, 0,
+-					TBNET_RX_PAGE_SIZE, DMA_FROM_DEVICE);
+-		if (dma_mapping_error(dma_dev, dma_addr)) {
+-			ret = -ENOMEM;
+-			goto err_free;
++			tbnet_free_buffers(ring);
++			return -ENOMEM;
+ 		}
+ 
++		dma_addr = page_pool_get_dma_addr(tf->page);
+ 		tf->frame.buffer_phy = dma_addr;
+ 		tf->dev = net->dev;
+ 
+@@ -540,10 +538,6 @@
+ 	}
+ 
+ 	return 0;
+-
+-err_free:
+-	tbnet_free_buffers(ring);
+-	return ret;
+ }
+ 
+ static struct tbnet_frame *tbnet_get_tx_buffer(struct tbnet *net)
+@@ -804,7 +798,6 @@
+ {
+ 	struct tbnet *net = container_of(napi, struct tbnet, napi);
+ 	unsigned int cleaned_count = tbnet_available_buffers(&net->rx_ring);
+-	struct device *dma_dev = tb_ring_dma_device(net->rx_ring.ring);
+ 	unsigned int rx_packets = 0;
+ 
+ 	while (rx_packets < budget) {
+@@ -830,9 +823,6 @@
+ 		if (!frame)
+ 			break;
+ 
+-		dma_unmap_page(dma_dev, frame->buffer_phy,
+-			       TBNET_RX_PAGE_SIZE, DMA_FROM_DEVICE);
+-
+ 		tf = container_of(frame, typeof(*tf), frame);
+ 
+ 		page = tf->page;
+@@ -840,11 +830,18 @@
+ 		net->rx_ring.cons++;
+ 		cleaned_count++;
+ 
++		/* The page stays DMA-mapped for the page_pool's
++		 * lifetime; just invalidate the CPU view of what the
++		 * device wrote.
++		 */
++		page_pool_dma_sync_for_cpu(net->rx_pool, page, 0,
++					   TBNET_RX_PAGE_SIZE);
++
+ 		hdr = page_address(page);
+ 		if (!tbnet_check_frame(net, tf, hdr)) {
+ 			trace_tbnet_invalid_rx_ip_frame(hdr->frame_size,
+ 				hdr->frame_id, hdr->frame_index, hdr->frame_count);
+-			__free_pages(page, TBNET_RX_PAGE_ORDER);
++			page_pool_put_full_page(net->rx_pool, page, true);
+ 			dev_kfree_skb_any(net->skb);
+ 			net->skb = NULL;
+ 			continue;
+@@ -859,11 +856,13 @@
+ 			skb = build_skb(page_address(page),
+ 					TBNET_RX_PAGE_SIZE);
+ 			if (!skb) {
+-				__free_pages(page, TBNET_RX_PAGE_ORDER);
++				page_pool_put_full_page(net->rx_pool, page,
++							true);
+ 				net->stats.rx_errors++;
+ 				break;
+ 			}
+ 
++			skb_mark_for_recycle(skb);
+ 			skb_reserve(skb, hdr_size);
+ 			skb_put(skb, frame_size);
+ 
+@@ -961,6 +960,40 @@
+ 	}
+ 	net->rx_ring.ring = ring;
+ 
++	/* Back the Rx ring with a page_pool so that DMA mappings and
++	 * multi-order page allocations are amortised across packets.
++	 * pp.order matches TBNET_RX_PAGE_ORDER so the NHI 4 kB-boundary
++	 * requirement is preserved on every buffer.
++	 */
++	{
++		struct page_pool_params pp = {
++			.flags		= PP_FLAG_DMA_MAP |
++					  PP_FLAG_DMA_SYNC_DEV,
++			.order		= TBNET_RX_PAGE_ORDER,
++			.pool_size	= TBNET_RING_SIZE,
++			.nid		= NUMA_NO_NODE,
++			.dev		= tb_ring_dma_device(net->rx_ring.ring),
++			.napi		= &net->napi,
++			.dma_dir	= DMA_FROM_DEVICE,
++			.max_len	= TBNET_RX_PAGE_SIZE,
++		};
++
++		net->rx_pool = page_pool_create(&pp);
++		if (IS_ERR(net->rx_pool)) {
++			int err = PTR_ERR(net->rx_pool);
++
++			netdev_err(dev, "failed to create Rx page_pool: %d\n",
++				   err);
++			net->rx_pool = NULL;
++			tb_ring_free(net->rx_ring.ring);
++			net->rx_ring.ring = NULL;
++			tb_xdomain_release_out_hopid(xd, hopid);
++			tb_ring_free(net->tx_ring.ring);
++			net->tx_ring.ring = NULL;
++			return err;
++		}
++	}
++
+ 	napi_enable(&net->napi);
+ 	start_login(net);
+ 
+@@ -979,6 +1012,13 @@
+ 	tb_ring_free(net->rx_ring.ring);
+ 	net->rx_ring.ring = NULL;
+ 
++	/* tbnet_tear_down() has returned every Rx page to the pool via
++	 * tbnet_free_buffers(); skbs still in flight will be returned
++	 * by the page_pool recycle path when they are freed.
++	 */
++	page_pool_destroy(net->rx_pool);
++	net->rx_pool = NULL;
++
+ 	tb_xdomain_release_out_hopid(net->xd, net->local_transmit_path);
+ 	tb_ring_free(net->tx_ring.ring);
+ 	net->tx_ring.ring = NULL;
+-- 
+2.47.0

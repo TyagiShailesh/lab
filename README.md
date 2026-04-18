@@ -1,35 +1,39 @@
 # Lab Server (192.168.1.10)
 
-DaVinci Resolve render node + storage server.
+Storage server + NVIDIA compute box (CUDA, NVENC, GDS).
 
-ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake) / 64 GB RAM / Ubuntu 24.04 / Kernel 6.19.9
+ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake) / 64 GB RAM / Ubuntu 24.04 / Kernel 6.19.10
 
 ## Status
 
 | Component | Status |
 |---|---|
-| Samba (media/st/data/iris/TM shares, SMB3) | done |
-| bcachefs tuning (SSD durability 2, no foreground compression, zstd at rest) | done |
+| bcachefs pool ([bcachefs.md](bcachefs.md)) | done (one-time migration: [migrate-bcachefs.md](migrate-bcachefs.md)) |
+| Samba (media, st, data, iris, tm — SMB3) | done |
 | PostgreSQL 18 (PGDG, nightly backup) | done |
-| Mac Resolve → PostgreSQL | done |
-| Xorg + VNC (TigerVNC) | done |
-| DaVinci Resolve Studio 20.3.2 | done |
-| OpenVINO 2026.0.0 | done |
+| Mac DaVinci Resolve → PostgreSQL | done |
 | WireGuard (UDP 51820) | done |
-| Avahi/mDNS (lab.local) | done |
-| Samsung 9100 Pro 4TB x2 | pending (hardware) |
-| RTX 6000 Blackwell | pending (hardware) |
-| NVIDIA driver + headless config | pending (needs GPU) |
-| Resolve render node service | pending (needs GPU) |
+| Avahi / mDNS (lab.local) | done |
+| NVIDIA RTX PRO 2000 Blackwell | done |
+| NVIDIA driver + CUDA + GDS | done |
+| OpenVINO 2026.0.0 | done |
+| Thunderbolt networking | done (in-tree); upstream page_pool RX port: [thunderbolt-upstream.md](thunderbolt-upstream.md) |
 
 ## Docs
 
-- [system/](system/) — OS, custom kernel, build scripts, post-install config, disaster recovery
-- [hardware.md](hardware.md) — board, CPU, RAM, slots, ports, BIOS
-- [storage.md](storage.md) — bcachefs pool, samba shares
-- [gpu.md](gpu.md) — NVIDIA driver, Xorg headless, FFmpeg encode commands
-- [resolve.md](resolve.md) — DaVinci Resolve setup, color management, remote render
-- [upgrade-plan.md](upgrade-plan.md) — BIOS update, SSD + GPU install phases
+- [hardware.md](hardware.md) — board, CPU, RAM, slots, drives, BIOS
+- [network.md](network.md) — br0, 10GbE, Thunderbolt, WireGuard, sysctl
+- [storage.md](storage.md) — Samba shares + storage overview
+- [bcachefs.md](bcachefs.md) — pool architecture, devices, systemd, kernel module
+- [postgres.md](postgres.md) — PostgreSQL 18 + backup cron
+- [gpu.md](gpu.md) — NVIDIA RTX PRO 2000: driver, CUDA, GDS
+- [media.md](media.md) — FFmpeg recipes + AI upscaling
+- [thunderbolt.md](thunderbolt.md) — Thunderbolt runbook
+- [thunderbolt-upstream.md](thunderbolt-upstream.md) — page_pool RX upstream work
+- [post-install.md](post-install.md) — OS bring-up runbook
+- [migrate-bcachefs.md](migrate-bcachefs.md) — one-time pool migration (delete after run)
+- [kernel/](kernel/) — custom kernel build pipeline (scripts + config + patches)
+- [scripts/](scripts/) — runnable tools (FFmpeg encoders, media stack builder)
 
 ## Arqic + Khor (moved)
 
