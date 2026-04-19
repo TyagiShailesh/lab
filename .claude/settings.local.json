@@ -10,7 +10,8 @@
       "WebSearch",
       "WebFetch",
       "Bash(ssh 192.168.1.10 \"sudo SKIP_PACKAGE_CHECK=1 /tmp/DaVinci_Resolve_Studio_20.3.2_Linux.run -i -y 2>&1 | tail -10\")",
-      "Bash(ssh 192.168.1.10 \"vncserver -kill :1 2>/dev/null; printf ''resolve\\\\nresolve\\\\nn\\\\n'' | vncpasswd 2>&1 && vncserver :1 -localhost no -geometry 1920x1080 2>&1\")"
+      "Bash(ssh 192.168.1.10 \"vncserver -kill :1 2>/dev/null; printf ''resolve\\\\nresolve\\\\nn\\\\n'' | vncpasswd 2>&1 && vncserver :1 -localhost no -geometry 1920x1080 2>&1\")",
+      "Bash(git log *)"
     ],
     "defaultMode": "bypassPermissions"
   }

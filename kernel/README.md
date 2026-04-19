@@ -7,7 +7,7 @@ Topic docs:
 - Architecture and hardware: [../hardware.md](../hardware.md)
 - Networking, sysctl: [../network.md](../network.md)
 - bcachefs pool: [../bcachefs.md](../bcachefs.md)
-- NVIDIA driver + GDS details: [../gpu.md](../gpu.md)
+- NVIDIA driver details: [../gpu.md](../gpu.md)
 
 ---
 
@@ -81,31 +81,27 @@ Pre-built from [NVIDIA/open-gpu-kernel-modules](https://github.com/NVIDIA/open-g
 
 | | |
 |---|---|
-| Modules | `nvidia.ko`, `nvidia-modeset.ko`, `nvidia-drm.ko`, `nvidia-uvm.ko`, `nvidia-peermem.ko`, `nvidia-fs.ko` |
+| Modules | `nvidia.ko`, `nvidia-modeset.ko`, `nvidia-drm.ko`, `nvidia-uvm.ko`, `nvidia-peermem.ko` |
 | Location | `/usr/lib/modules/<kver>/kernel/drivers/video/` |
 | Firmware | `/usr/lib/firmware/nvidia/<version>/gsp_*.bin` |
 | Version | Pinned tag in `build-kernel.sh` — must match `libnvidia-compute` etc. on target |
 
 Target must have `nvidia-dkms-open` removed (only keep userspace libs from `cuda` metapackage).
 
-### NVIDIA GPUDirect Storage (`nvidia-fs`)
-
-Pre-built from [NVIDIA/gds-nvidia-fs](https://github.com/NVIDIA/gds-nvidia-fs) at a pinned tag. Source is patched in `build-kernel.sh` for kernel 6.18+ API changes (`vm_flags`, `blk_map_iter`, `memdesc_flags_t`). Full context in [../gpu.md](../gpu.md).
-
 ---
 
 ## Build pipeline
 
-All build scripts and patches live in this directory.
+All build scripts live in this directory.
 
 ```
-build-kernel.sh     → builds bzImage + modules + bcachefs + NVIDIA OOT + nvidia-fs, creates .tar.zst
+build-kernel.sh     → builds bzImage + modules + bcachefs + NVIDIA OOT, creates .tar.zst
 install-kernel.sh   → extracts tarball to target, creates EFI boot entry (finds disk by PARTUUID)
 build-rootfs.sh     → builds Ubuntu 24.04 minimal rootfs tarball
 install-rootfs.sh   → wipes disk, partitions, installs rootfs (DESTRUCTIVE)
 config              → kernel .config (back up before modifying)
 tb-upstream/        → thunderbolt_net page_pool patch + submission runbook (see tb-upstream/README.md)
-src/                → downloaded sources (kernel, bcachefs-tools, nvidia-open, nvidia-fs) — gitignored
+src/                → downloaded sources (kernel, bcachefs-tools, nvidia-open) — gitignored
 build/              → build tree + staging — gitignored
 images/             → output tarballs — gitignored
 ```

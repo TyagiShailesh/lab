@@ -6,7 +6,7 @@ set -euo pipefail
 kernel="$1"
 
 # Find boot disk by root PARTUUID (stable across NVMe reordering)
-ROOT_PARTUUID="204dd2f7-381a-47a8-bc8d-c2dff520e914"
+ROOT_PARTUUID="e5647d0c-b88a-4f30-919e-736dc3e841e8"
 root_part=$(blkid -t PARTUUID="$ROOT_PARTUUID" -o device 2>/dev/null) \
   || { echo "FATAL: cannot find root partition by PARTUUID=$ROOT_PARTUUID"; exit 1; }
 disk=${root_part%p[0-9]*}  # strip partition suffix (e.g. /dev/nvme1n1p2 → /dev/nvme1n1)
@@ -50,7 +50,7 @@ existing=$(efibootmgr | awk -v label="$efi_label" '$0 ~ label {print substr($1,5
 
 efibootmgr -c -d "$disk" -p 1 -L "$efi_label" \
   -l "\\$kname" \
-  --unicode "root=PARTUUID=204dd2f7-381a-47a8-bc8d-c2dff520e914 rw iommu=pt nvme.poll_queues=4"
+  --unicode "root=PARTUUID=e5647d0c-b88a-4f30-919e-736dc3e841e8 rw iommu=pt nvme.poll_queues=4"
 
 # Set new kernel as next boot (preserves existing boot order)
 new=$(efibootmgr | awk -v label="$efi_label" '$0 ~ label {print substr($1,5,4);exit}')

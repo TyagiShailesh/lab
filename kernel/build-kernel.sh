@@ -22,11 +22,6 @@ bcachefs_tag=v1.37.5
 nvidia_repo=https://github.com/NVIDIA/open-gpu-kernel-modules.git
 nvidia_tag=595.58.03
 
-# NVIDIA GPUDirect Storage kernel module
-# https://github.com/NVIDIA/gds-nvidia-fs/tags
-nvidia_fs_repo=https://github.com/NVIDIA/gds-nvidia-fs.git
-nvidia_fs_tag=v2.28.2
-
 # Ensure cargo is in PATH (rustup installs to ~/.cargo/bin)
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
@@ -47,14 +42,6 @@ staging=build/staging
 if [ ! -f "$build/Makefile" ]; then
   echo "=== Downloading kernel source ==="
   wget --no-check-certificate -O- "$src" | tar -xJf - -C "$build" --strip-components=1
-
-  # Apply out-of-tree patches. Kept inside the extract block so repeated
-  # build-kernel.sh runs don't double-apply.
-  for p in tb-upstream/*.patch; do
-    [ -f "$p" ] || continue
-    echo "=== Applying $p ==="
-    patch -d "$build" -p1 < "$p"
-  done
 fi
 
 if [ ! -d "src/bcachefs-tools" ]; then
@@ -65,11 +52,6 @@ fi
 if [ ! -d "src/nvidia-open" ]; then
   echo "=== Cloning NVIDIA open kernel modules ==="
   git clone --depth 1 --branch "$nvidia_tag" "$nvidia_repo" src/nvidia-open
-fi
-
-if [ ! -d "src/nvidia-fs" ]; then
-  echo "=== Cloning NVIDIA GDS (nvidia-fs) ==="
-  git clone --depth 1 --branch "$nvidia_fs_tag" "$nvidia_fs_repo" src/nvidia-fs
 fi
 
 # --- Kernel build ---
@@ -154,21 +136,6 @@ for mod in nvidia nvidia-modeset nvidia-drm nvidia-uvm nvidia-peermem; do
   cp "src/nvidia-open/kernel-open/$mod.ko" "$nvidia_dest"/
 done
 
-# --- NVIDIA GPUDirect Storage (nvidia-fs) kernel module ---
-# nvidia-fs needs nv-p2p.h from NVIDIA source + nvidia_p2p_* symbols from built modules
-nvidia_p2p_dir="$(pwd)/src/nvidia-open/kernel-open/nvidia"
-# Build nv.symvers from the just-built nvidia.ko
-grep "nvidia_p2p_" src/nvidia-open/kernel-open/Module.symvers > src/nvidia-fs/src/nv.symvers
-# Patch nvidia-fs for kernel 6.18+ API changes:
-#   1. __vm_flags removed — read via vma->vm_flags (it's a read-only access)
-#   2. blk_dma_iter.iter is now blk_map_iter, not req_iterator (function sigs + usage)
-#   3. page->flags is memdesc_flags_t{.f} not unsigned long — use .f for %lx format
-sed -i 's/ACCESS_PRIVATE(vma, __vm_flags)/vma->vm_flags/' src/nvidia-fs/src/nvfs-mmap.c
-sed -i 's/struct req_iterator/struct blk_map_iter/g' src/nvidia-fs/src/nvfs-dma.c
-sed -i 's/->flags)/->flags.f)/g; s/\->flags$/->flags.f/' src/nvidia-fs/src/nvfs-mmap.c
-make -C src/nvidia-fs/src KDIR="$(pwd)/$build" NVIDIA_SRC_DIR="$nvidia_p2p_dir" -j"$(nproc)" module
-cp src/nvidia-fs/src/nvidia-fs.ko "$nvidia_dest"/
-
 # NVIDIA GSP firmware ships with the userspace driver package (apt install cuda).
 # Already at /lib/firmware/nvidia/<version>/gsp_*.bin on target — not in open-gpu-kernel-modules repo.
 
@@ -188,7 +155,6 @@ fail=0
 grep -q bcachefs "$staging/usr/lib/modules/$kver/modules.dep" && echo "OK: bcachefs in modules.dep" || { echo "FAIL: bcachefs not in modules.dep"; fail=1; }
 [ -f "$nvidia_dest/nvidia.ko" ] && echo "OK: nvidia.ko" || { echo "FAIL: nvidia.ko missing"; fail=1; }
 [ -f "$nvidia_dest/nvidia-drm.ko" ] && echo "OK: nvidia-drm.ko" || { echo "FAIL: nvidia-drm.ko missing"; fail=1; }
-[ -f "$nvidia_dest/nvidia-fs.ko" ] && echo "OK: nvidia-fs.ko (GDS)" || { echo "FAIL: nvidia-fs.ko missing"; fail=1; }
 [ "$fail" -eq 1 ] && { echo "FATAL: verification failed"; exit 1; }
 
 # --- Create tarball ---

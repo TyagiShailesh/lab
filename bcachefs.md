@@ -127,31 +127,29 @@ Root filesystem may use kernel cmdline; **bcachefs is not in `/etc/fstab`** on t
 | Enable | `systemctl enable nas.service` |
 | Wants | `multi-user.target` |
 
-**Target unit (by-id, all four members):**
+**Live unit (UUID mount via bcachefs userspace helper):**
 
 ```ini
 [Unit]
-Description=NAS storage pool
-# Prefer Wants= over Requires= so a missing disk does not block the entire boot.
+Description=Mount NAS storage pool
+# Wants= (not Requires=) so a missing disk doesn't hang boot.
+# Device discovery by filesystem UUID — independent of sda/nvmeN enumeration.
 After=systemd-modules-load.service
 
 [Service]
 ExecStartPre=/sbin/modprobe bcachefs
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/mount -t bcachefs \
-  /dev/disk/by-id/ata-ST14000NM000J-2TX103_ZR900CTB:\
-/dev/disk/by-id/ata-ST14000NM001G-2KJ103_ZLW212GF:\
-/dev/disk/by-id/nvme-WD_BLACK_SN850X_HS_2000GB_24364L800813:\
-/dev/disk/by-id/nvme-Samsung_SSD_990_PRO_2TB_S7KHNU0Y517886B \
-  -o version_upgrade=none /nas
+ExecStart=/usr/local/sbin/bcachefs mount -o version_upgrade=none UUID=034fb932-bf25-48ef-a477-e4b971a7230e /nas
 ExecStop=/usr/bin/umount /nas
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-**Avoid** `Requires=dev-sda.device dev-sdb.device`: if enumeration swaps, those units never become active and boot can hang. Use **by-id** `.device` units or **filesystem UUID** mount.
+Why `/usr/local/sbin/bcachefs mount` and not `/usr/bin/mount -t bcachefs UUID=…`: `mount(8)` doesn't invoke the userspace scanner that locates pool members by filesystem UUID, so the kernel only sees one device and refuses with `insufficient_devices_to_start`. `bcachefs mount` does the userspace scan first, then mounts.
+
+**Avoid** `Requires=dev-sda.device dev-sdb.device`: if enumeration swaps, those units never become active and boot can hang.
 
 **Stop / start:**
 
