@@ -100,7 +100,6 @@ install-kernel.sh   → extracts tarball to target, creates EFI boot entry (find
 build-rootfs.sh     → builds Ubuntu 24.04 minimal rootfs tarball
 install-rootfs.sh   → wipes disk, partitions, installs rootfs (DESTRUCTIVE)
 config              → kernel .config (back up before modifying)
-tb-upstream/        → thunderbolt_net page_pool patch + submission runbook (see tb-upstream/README.md)
 src/                → downloaded sources (kernel, bcachefs-tools, nvidia-open) — gitignored
 build/              → build tree + staging — gitignored
 images/             → output tarballs — gitignored
@@ -145,8 +144,7 @@ images/             → output tarballs — gitignored
 | `postgresql` | Mac DaVinci Resolve project DB | — |
 | `avahi-daemon` | mDNS (lab.local) | — |
 | `wg-quick@wg0` | WireGuard VPN | [../network.md](../network.md) |
-| `cpu-performance` | CPU governor = performance on boot | — |
-| `thunderbolt-tune` | TB IRQ / RPS / busy-poll | [../network.md](../network.md) |
+| `pci-runtime-pm` | PCI `power/control=auto` on all devices (idle-power) | — |
 | `caddy` | Web server | — |
 | `ollama` | LLM inference | — |
 | `chrony` | NTP time sync | — |

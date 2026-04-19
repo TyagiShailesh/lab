@@ -13,8 +13,7 @@ ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake) / 64 GB RAM 
 - [gpu.md](gpu.md) — NVIDIA RTX PRO 2000: driver, CUDA
 - [media.md](media.md) — FFmpeg recipes + AI upscaling
 - [thunderbolt.md](thunderbolt.md) — Thunderbolt runbook
-- [kernel/tb-upstream/](kernel/tb-upstream/) — thunderbolt_net page_pool patch + upstream submission runbook
-- [kernel/](kernel/) — custom kernel build pipeline (scripts + config)
+- [kernel/](kernel/) — kernel build pipeline (scripts + config)
 - [scripts/](scripts/) — runnable tools (FFmpeg encoders, media stack builder)
 
 ## Arqic + Khor (moved)

@@ -73,7 +73,7 @@ make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
   --set-val IOMMU_DEFAULT_DMA_LAZY y \
   --enable PERF_EVENTS_AMD_UNCORE \
   --enable CMDLINE_BOOL \
-  --set-str CMDLINE "iommu=pt nvme.poll_queues=4" \
+  --set-str CMDLINE "iommu=pt pcie_aspm=force pcie_aspm.policy=powersave" \
   --disable CMDLINE_OVERRIDE \
   --enable MEMORY_HOTPLUG --enable MEMORY_HOTREMOVE --enable ZONE_DEVICE \
   --enable PCI_P2PDMA \

@@ -50,7 +50,7 @@ existing=$(efibootmgr | awk -v label="$efi_label" '$0 ~ label {print substr($1,5
 
 efibootmgr -c -d "$disk" -p 1 -L "$efi_label" \
   -l "\\$kname" \
-  --unicode "root=PARTUUID=e5647d0c-b88a-4f30-919e-736dc3e841e8 rw iommu=pt nvme.poll_queues=4"
+  --unicode "root=PARTUUID=e5647d0c-b88a-4f30-919e-736dc3e841e8 rw iommu=pt pcie_aspm=force pcie_aspm.policy=powersave"
 
 # Set new kernel as next boot (preserves existing boot order)
 new=$(efibootmgr | awk -v label="$efi_label" '$0 ~ label {print substr($1,5,4);exit}')

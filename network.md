@@ -58,41 +58,6 @@ netplan apply
 
 ---
 
-## Thunderbolt tuning service
-
-IRQ pinning, RPS, busy-poll. Persisted via systemd unit.
-
-```bash
-cat > /etc/systemd/system/thunderbolt-tune.service << 'EOF'
-[Unit]
-Description=Thunderbolt network performance tuning
-After=network.target
-Wants=network.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/sh -c 'IRQ_RX=$(grep -l thunderbolt /proc/irq/*/actions 2>/dev/null | grep -oP "\d+" | tail -1); IRQ_TX=$(grep -l thunderbolt /proc/irq/*/actions 2>/dev/null | grep -oP "\d+" | tail -2 | head -1); [ -n "$IRQ_RX" ] && echo 0 > /proc/irq/$IRQ_RX/smp_affinity_list; [ -n "$IRQ_TX" ] && echo 1 > /proc/irq/$IRQ_TX/smp_affinity_list'
-ExecStart=/bin/sh -c 'echo 3fff > /sys/class/net/thunderbolt0/queues/rx-0/rps_cpus 2>/dev/null; echo 4096 > /sys/class/net/thunderbolt0/queues/rx-0/rps_flow_cnt 2>/dev/null'
-ExecStart=/bin/sh -c 'echo 2 > /sys/class/net/thunderbolt0/napi_defer_hard_irqs 2>/dev/null; echo 200000 > /sys/class/net/thunderbolt0/gro_flush_timeout 2>/dev/null'
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl enable thunderbolt-tune
-```
-
-Settings applied:
-
-```
-IRQ pinning:  RX → P-core 0 (5 GHz), TX → P-core 1
-RPS:          all 14 cores (3fff), 4096 flow entries
-NAPI:         busy-poll (defer_hard_irqs=2, gro_flush_timeout=200000)
-```
-
----
-
 ## WireGuard
 
 ```bash
