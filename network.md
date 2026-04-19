@@ -78,54 +78,10 @@ systemctl enable --now wg-quick@wg0
 
 ---
 
-## Sysctl network + memory tuning
-
-```bash
-cat > /etc/sysctl.d/99-lab.conf << 'EOF'
-# Network — BBR, 256MB socket buffers
-net.core.somaxconn = 262144
-net.ipv4.tcp_max_syn_backlog = 262144
-net.core.netdev_max_backlog = 30000
-net.core.rmem_default = 262144
-net.core.rmem_max = 268435456
-net.core.wmem_default = 262144
-net.core.wmem_max = 268435456
-net.ipv4.tcp_rmem = 4096 262144 268435456
-net.ipv4.tcp_wmem = 4096 262144 268435456
-net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_slow_start_after_idle = 0
-net.ipv4.tcp_mtu_probing = 1
-net.ipv4.ip_forward = 1
-
-# Memory — 64 GB RAM, NAS workload
-vm.swappiness = 1
-vm.dirty_ratio = 5
-vm.dirty_background_ratio = 2
-vm.dirty_expire_centisecs = 12000
-vm.dirty_writeback_centisecs = 1200
-vm.vfs_cache_pressure = 50
-
-# File limits
-fs.file-max = 2097152
-fs.nr_open = 2097152
-
-# Security
-kernel.randomize_va_space = 2
-kernel.kptr_restrict = 1
-EOF
-
-sysctl --system
-```
-
-Key settings: BBR congestion control, 256 MB socket buffers, `vm.swappiness=1`, `vm.dirty_ratio=5`, `vm.vfs_cache_pressure=50`. No swap.
-
----
-
 ## Verify
 
 ```bash
 ip addr show br0
 iperf3 -s &                 # test from Mac: iperf3 -c lab.local
 wg show
-sysctl net.ipv4.tcp_congestion_control   # should be bbr
 ```

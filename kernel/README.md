@@ -144,7 +144,6 @@ images/             → output tarballs — gitignored
 | `postgresql` | Mac DaVinci Resolve project DB | — |
 | `avahi-daemon` | mDNS (lab.local) | — |
 | `wg-quick@wg0` | WireGuard VPN | [../network.md](../network.md) |
-| `pci-runtime-pm` | PCI `power/control=auto` on all devices (idle-power) | — |
 | `caddy` | Web server | — |
 | `ollama` | LLM inference | — |
 | `chrony` | NTP time sync | — |
