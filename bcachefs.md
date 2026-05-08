@@ -9,10 +9,11 @@ Single reference for how `/nas` is built, mounted, and maintained. **Samba paths
 > **SSDs give hot-path speed. HDDs hold the truth.**
 
 - Foreground writes and hot reads hit the SSD tier at NVMe latency.
-- The authoritative copies of **user data** and **all metadata (btree)** live on the HDD tier.
-- SSDs carry only the **journal** and **user data** (as writeback cache) — never btree.
-- Losing both SSDs costs at most the last few seconds of un-flushed journal. btree and reconciled data survive on the HDDs.
-- Losing one HDD leaves the other HDD holding a full copy of data + btree.
+- The authoritative copies of **user data** and **all metadata (journal + btree)** live on the HDD tier.
+- SSDs carry **only user data** as writeback cache — never journal, never btree.
+- Losing both SSDs costs only the in-transit user data (extents written to SSD but not yet migrated to HDDs). Journal and btree survive entirely on the HDDs, so the FS itself stays mountable.
+- Losing one HDD leaves the other HDD holding a full copy of data + btree + journal.
+- The cache tier is **safely wipeable at any time** — `data_allowed=user` is the hard gate enforcing this. See pre-wipe checklist in [storage.md](storage.md#cache-tier-design).
 
 Hardware is final — this is the single intended layout, not a "plan."
 
@@ -42,18 +43,20 @@ bcachefs is **not** in the mainline kernel tree for this lab; it ships as an **o
          │                          │                          │
    ┌─────▼─────┐              ┌──────▼──────┐           ┌───────▼───────┐
    │ SSD tier  │  foreground  │  HDD tier   │  promote  │  reconcile    │
-   │ (label:   │  + journal   │ (label:     │  cache    │  (background  │
-   │  ssd)     │  + user data │  hdd)       │  back to  │  moves,       │
-   │ no btree  │  (writeback) │ btree+user  │  SSD      │  replication) │
+   │ (label:   │  user-data   │ (label:     │  cache    │  (background  │
+   │  ssd)     │  writes only │  hdd)       │  back to  │  moves SSD →  │
+   │ user only │  ack at      │ journal +   │  SSD      │  HDD; SSD     │
+   │ no journal│  NVMe speed  │ btree +     │           │  pointer      │
+   │ no btree  │              │ user truth  │           │  dropped)     │
    └───────────┘              └─────────────┘           └───────────────┘
 ```
 
-- Foreground writes: `foreground_target=ssd`.
-- Reconcile to durable tier: `background_target=hdd`.
+- Foreground writes: `foreground_target=ssd`. Single SSD bucket per write satisfies replicas (`durability=2`).
+- Reconcile to durable tier: `background_target=hdd`. Migrates and **drops the SSD pointer** after move.
 - Promote hot reads: `promote_target=ssd`.
-- Metadata preference: `metadata_target=hdd` (forced — see §4).
+- Metadata preference: `metadata_target=hdd` (combined with `data_allowed=user` on SSDs as the hard gate — see §4).
 - Compression: `compression=none` foreground, `background_compression=zstd` on HDD migration.
-- Replication: `data_replicas=2`, `metadata_replicas=2`, each copy on a distinct device.
+- Replication: `data_replicas=2`, `metadata_replicas=2`, each durable copy on a distinct HDD.
 
 Official docs: [bcachefs.org — Caching](https://bcachefs.org/Caching/), [Principles of Operation (PDF)](https://bcachefs.org/bcachefs-principles-of-operation.pdf).
 
@@ -61,35 +64,46 @@ Official docs: [bcachefs.org — Caching](https://bcachefs.org/Caching/), [Princ
 
 ## 4. Core decisions
 
-### 4.1 Durability 1 on every device
+### 4.1 Per-device durability
 
-All four pool members are `durability=1`. One physical copy counts as one replica. With `data_replicas=2` and `metadata_replicas=2` this means two copies on two distinct devices — no device "double-counts."
+| Label | `durability` | Effect on `data_replicas=2` |
+|---|---|---|
+| `hdd` | 1 | A single HDD bucket = 1 replica. Two HDDs needed to satisfy. |
+| `ssd` | 2 | A single SSD bucket = 2 replicas. One SSD bucket alone satisfies. |
 
-### 4.2 `data_allowed` splits journal from btree
+The SSD `durability=2` claim is dishonest in the literal sense (one NVMe is one physical copy, not two), but it's how bcachefs expresses **"this device is the one-and-done foreground target"**. The allocator (`alloc/foreground.c:add_new_bucket`) stops adding pointers once `nr_effective ≥ nr_replicas`, so foreground writes ack at single-NVMe speed without an HDD pointer in the synchronous path. Background reconcile then materializes the real 2× HDD copies.
 
-This is the mechanism that enforces the design goal:
+We accept the in-transit loss window (SSDs die before `background_target=hdd` migration completes → those bytes are gone). See trade-offs in [storage.md](storage.md#cache-tier-design).
+
+### 4.2 `data_allowed` is the hard gate
+
+This is what actually enforces the design goal — `metadata_target` and `foreground_target` are *preferences*, but `data_allowed` is *enforcement* at the device level. The kernel refuses to place excluded data types on a device regardless of FS-level options.
 
 | Device label | `data_allowed` | Effect |
 |---|---|---|
-| `ssd` (SN850X, 990 Pro) | `journal,user` | No btree on SSDs. Journal + user-data writeback cache only. |
-| `hdd` (Exos ×2) | `btree,user` | No journal on HDDs. Btree + reconciled user data. |
+| `ssd` (SN850X, 990 Pro) | `user` | No journal, no btree on SSDs. User-data writeback cache only. |
+| `hdd` (Exos ×2) | `journal,btree,user` | All data types — journal and btree truth, plus reconciled user data. |
 
-Consequence: `metadata_replicas=2` places both btree copies on HDDs (the only devices that allow btree). Journal replicas land on SSDs (the only devices that allow journal). `fsync` stays at NVMe latency; metadata integrity survives full SSD loss.
+Consequence: `metadata_replicas=2` places both btree copies on HDDs (the only devices that allow btree). Journal replicas also land on HDDs only. SSDs can be wiped at any time without breaking metadata or losing the FS — only un-migrated user data is at risk.
+
+**Lesson from 2026-05-08:** the previous design had `data_allowed=journal,user` on SSDs. Btree leaked onto SSDs anyway (visible in `show-super` as `Has data: btree`) — apparently older btree placement persisted across `metadata_target` changes. Wiping the SSDs without first draining metadata broke topology and forced a 30-minute `scan_for_btree_nodes` recovery + ~3.8 TB of user files relocated to `/nas/lost+found/`. **Always verify `Has data` before destruction** — see pre-wipe checklist in [storage.md](storage.md#cache-tier-design).
 
 ### 4.3 What happens on device loss
 
 | Failure | Journal | Btree | User data | Recovery |
 |---|---|---|---|---|
-| 1 SSD | 1 copy remaining on other SSD | untouched on HDDs | 1 cached copy remaining on other SSD, reconciled copies on HDDs | replace SSD, `bcachefs device remove` old, `device add` new |
-| Both SSDs | lost (recent un-flushed writes) | untouched on HDDs | reconciled copies on HDDs; lose un-reconciled dirty data | rebuild SSDs, mount reports journal-replay gap |
-| 1 HDD | untouched on SSDs | 1 copy remaining on other HDD | 1 copy remaining on other HDD | replace HDD, reconcile repopulates |
-| Both HDDs | on SSDs, fine short-term | lost | only cached copies on SSDs | catastrophic; restore from backup |
+| 1 SSD | untouched on HDDs | untouched on HDDs | in-transit on lost SSD = gone; migrated copies on HDDs intact | replace SSD, `bcachefs device remove -f -F` old, `device add` new |
+| **Both SSDs** | **untouched on HDDs** | **untouched on HDDs** | only in-transit data lost (extents written but not yet migrated) | replace SSDs, `device remove -f -F` × 2, `device add` × 2; FS stays mountable throughout |
+| 1 HDD | 1 copy remaining on other HDD | 1 copy remaining on other HDD | 1 copy remaining on other HDD; SSD cache copies still hot | replace HDD, reconcile repopulates |
+| Both HDDs | lost | lost | catastrophic | restore from backup |
 
-This is why backups still matter — a dual-HDD failure loses btree.
+**Backups still matter — a dual-HDD failure loses everything that wasn't on the SSDs.** SSD-only failures are now fully tolerated.
 
 ### 4.4 Writeback semantics
 
-Per [bcachefs.org — Caching](https://bcachefs.org/Caching/) §2.2.4.1 + manual §8.5.4: with `foreground_target=ssd`, writes complete when enough replicas are durable. Because all four devices are `durability=1` and `data_replicas=2`, writes ack after **two SSD copies** land (both SSDs in the pool). Reconcile then moves copies to HDDs in the background and the SSD copies become cache (LRU-evictable).
+Per [bcachefs.org — Caching](https://bcachefs.org/Caching/) §2.2.4.1 + manual §8.5.4 + source confirmation in `alloc/foreground.c:add_new_bucket` + `data/reconcile/trigger.c`: with `foreground_target=ssd` and SSD `durability=2`, foreground writes ack after **one SSD copy** lands (`nr_effective += durability` → 2 ≥ data_replicas → done). The reconcile pass then walks each extent and, for any pointer not on `background_target`, schedules a *move* (not copy) to a `background_target` device — the SSD pointer is **dropped** after migration. Promote on read repopulates SSD cache via `promote_target=ssd` independently.
+
+End state for any quiesced extent: 2× durable copies on HDDs, 0× or 1× cache copy on an SSD depending on read activity. **fsync** stays at HDD latency because journal is on HDDs (the trade we accepted to make the cache tier safely wipeable).
 
 ---
 
@@ -99,10 +113,10 @@ Kernel names (`sda`, `nvme2n1`) **change across reboots**. Always use **`/dev/di
 
 | Role | Model | Size | Label | `durability` | `data_allowed` | Stable by-id |
 |------|-------|------|-------|---|---|---|
-| Data (HDD) | Seagate Exos ST14000NM000J | 14 TB | `hdd` | 1 | `btree,user` | `ata-ST14000NM000J-2TX103_ZR900CTB` |
-| Data (HDD) | Seagate Exos ST14000NM001G | 14 TB | `hdd` | 1 | `btree,user` | `ata-ST14000NM001G-2KJ103_ZLW212GF` |
-| Cache (NVMe) | WD_BLACK SN850X HS | 2 TB | `ssd` | 1 | `journal,user` | `nvme-WD_BLACK_SN850X_HS_2000GB_24364L800813` |
-| Cache (NVMe) | Samsung 990 Pro | 2 TB | `ssd` | 1 | `journal,user` | `nvme-Samsung_SSD_990_PRO_2TB_S7KHNU0Y517886B` |
+| Data (HDD) | Seagate Exos ST14000NM000J | 14 TB | `hdd` | 1 | `journal,btree,user` | `ata-ST14000NM000J-2TX103_ZR900CTB` |
+| Data (HDD) | Seagate Exos ST14000NM001G | 14 TB | `hdd` | 1 | `journal,btree,user` | `ata-ST14000NM001G-2KJ103_ZLW212GF` |
+| Cache (NVMe) | WD_BLACK SN850X HS | 2 TB | `ssd` | 2 | `user` | `nvme-WD_BLACK_SN850X_HS_2000GB_24364L800813` |
+| Cache (NVMe) | Samsung 990 Pro | 2 TB | `ssd` | 2 | `user` | `nvme-Samsung_SSD_990_PRO_2TB_S7KHNU0Y517886B` |
 
 Both SSDs live on the chipset Gen4 path (M.2_2 + M.2_4), symmetric — replicated writes are not bounded by the slower partner. The 9100 Pro on M.2_1 (Gen5 CPU-direct) is deliberately **outside** the pool: it's the boot drive + hot model cache for inference workloads; using it as a pool member capped its Gen5 bandwidth at the slower SSD's Gen4 speed.
 
@@ -224,9 +238,9 @@ Expected:
 
 - `data_replicas 2`, `metadata_replicas 2`
 - `foreground_target ssd`, `background_target hdd`, `promote_target ssd`, `metadata_target hdd`
-- Each HDD: `durability 1`, `data_allowed btree,user`
-- Each SSD: `durability 1`, `data_allowed journal,user`
-- `bcachefs fs usage -a` shows btree bytes only on HDD devices, journal bytes only on SSD devices.
+- Each HDD: `durability 1`, `data_allowed journal,btree,user`
+- Each SSD: `durability 2`, `data_allowed user` (no journal, no btree)
+- `bcachefs fs usage -a` shows btree and journal bytes only on HDD devices; SSD `Has data` should be `user` (or `user,cached`) only.
 
 ---
 

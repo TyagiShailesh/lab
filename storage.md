@@ -22,6 +22,11 @@
 
 **Why `data_allowed=user` only on SSDs.** Lesson from 2026-05-08: btree leaked onto SSDs (visible in `show-super` as `Has data: btree`) even with `metadata_target=hdd` set, and wiping SSDs without first draining metadata broke topology and forced a full `scan_for_btree_nodes` recovery. Locking the device's `data_allowed` to `user` is the only way to guarantee btree/journal never live on cache devices, so SSDs can be wiped/swapped at any time without metadata risk.
 
+**Pre-wipe / pre-remove checklist for cache devices.** Even with `data_allowed=user` enforced, **always verify before destruction:**
+1. `bcachefs show-super /dev/<ssd> | grep -A1 'Device <N>:' -A20 | grep 'Has data'` — must show `user,cached` only. If it includes `btree` or `journal`, **stop**: data_allowed wasn't locked down, or the device was added before the rule existed.
+2. If `Has data` includes anything beyond `user,cached`: lock `data_allowed=user` on the device (`bcachefs set-fs-option`), wait for rebalance to drain btree/journal off (verify by re-reading `Has data`), *then* wipe.
+3. The reverse — wiping first and discovering broken btree topology after — is unrecoverable for any extent whose btree node had its only durable pointer on the wiped device. Files affected return I/O errors permanently. Don't ask how I learned this.
+
 **Trade-offs accepted:**
 - *In-transit data loss* if both SSDs die before background migration completes (short window, bounded by SSD residency).
 - *Sustained-write throttling* once cache fills (~3 TB usable). Bursts ride at SSD speed; multi-hour writes bottleneck on HDD migration rate.
