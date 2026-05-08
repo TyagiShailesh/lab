@@ -26,8 +26,6 @@ kver=${kname#linux-}
 
 # --- Verify critical modules exist ---
 fail=0
-ls /mnt/usr/lib/modules/"$kver"/kernel/fs/bcachefs/bcachefs.ko >/dev/null 2>&1 \
-  || { echo "FATAL: bcachefs.ko missing"; fail=1; }
 ls /mnt/usr/lib/modules/"$kver"/kernel/drivers/video/nvidia.ko >/dev/null 2>&1 \
   || { echo "FATAL: nvidia.ko missing"; fail=1; }
 if [ "$fail" -eq 1 ]; then
@@ -61,15 +59,13 @@ if [ -n "$new" ]; then
   [ -n "$other" ] && efibootmgr -o "$new,$other" || efibootmgr -o "$new"
 fi
 
-# --- modules-load.d: ensure bcachefs loads at boot ---
-mkdir -p /mnt/etc/modules-load.d
-echo "bcachefs" > /mnt/etc/modules-load.d/bcachefs.conf
+# --- Stale bcachefs autoload (from previous installs) ---
+rm -f /mnt/etc/modules-load.d/bcachefs.conf
 
 echo ""
 echo "=== Installation summary ==="
 echo "Kernel:  $kname installed to EFI partition"
-echo "Modules: /usr/lib/modules/$kver/ (bcachefs.ko, nvidia.ko)"
-echo "Tools:   /usr/local/sbin/bcachefs (updated)"
+echo "Modules: /usr/lib/modules/$kver/ (nvidia.ko + storage stack built-in)"
 echo "Boot:    EFI entry '$efi_label' created and set as default"
 echo ""
 echo "Old kernels are preserved on EFI partition for rollback."

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds a generic Ubuntu 24.04 minimal rootfs tarball.
-# Hardware-specific config (netplan, samba, bcachefs service, etc.) is done post-install.
+# Hardware-specific config (netplan, samba, nas.service, etc.) is done post-install.
 # Always use the latest release URL — it points to the most recent build.
 set -euo pipefail
 
@@ -65,10 +65,6 @@ chmod 600 /root/.ssh/authorized_keys
 # User: st (samba/file ownership)
 useradd -m -s /bin/bash st
 usermod -aG users st
-
-# bcachefs module autoload
-mkdir -p /etc/modules-load.d
-echo "bcachefs" > /etc/modules-load.d/bcachefs.conf
 
 # CPU performance governor service
 cat > /etc/systemd/system/cpu-performance.service << 'SVC'
