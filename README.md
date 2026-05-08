@@ -8,8 +8,7 @@ ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake) / 64 GB RAM 
 
 - [hardware.md](hardware.md) — board, CPU, RAM, slots, drives, BIOS
 - [network.md](network.md) — br0, 10GbE, Thunderbolt, WireGuard, sysctl
-- [storage.md](storage.md) — Samba shares + storage overview
-- [bcachefs.md](bcachefs.md) — pool architecture, devices, systemd, kernel module
+- [storage.md](storage.md) — `/nas` storage stack (mdadm + LVM dm-cache + XFS) and Samba shares
 - [gpu.md](gpu.md) — NVIDIA RTX PRO 2000: driver, CUDA
 - [media.md](media.md) — FFmpeg recipes + AI upscaling
 - [thunderbolt.md](thunderbolt.md) — Thunderbolt runbook
