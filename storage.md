@@ -113,7 +113,23 @@ chmod 755 /nas/{media,st,data,tm}
 systemctl start smbd nmbd
 ```
 
-After verification, persist via the `nas.service` mount unit (see below).
+### Tuning the cache (mandatory)
+
+dm-cache's default `smq` policy **bypasses sequential I/O from the cache** (sensible for general-purpose servers; exactly wrong for a media NAS). Without tuning, sequential writes go straight to HDD at ~108 MB/s. With tuning: ~1.9 GB/s burst, page-cache-buffered writes ~7.7 GB/s, cache-warmed reads ~9 GB/s.
+
+```sh
+# Disable sequential bypass + raise migration ceiling. Persist via lvchange.
+lvchange --cachesettings 'sequential_threshold=0 migration_threshold=10485760' vg_nas/nas_data
+```
+
+| Setting | Default | Tuned | Effect |
+|---|---|---|---|
+| `sequential_threshold` (sectors) | 8 | **0** | never bypass cache for sequential I/O — bursts ride at NVMe speed |
+| `migration_threshold` (sectors/sec) | 2048 (~1 MB/s) | **10485760 (~5 GB/s)** | aggressive background drain SSD → HDD |
+
+Sustained-write ceiling is still bounded by HDD drain (~150 MB/s practical for the Exos mirror). For workloads larger than ~3 TB of continuous writes, throughput falls to that ceiling once cache fills. For typical bursty workloads, the cache rides at NVMe speed throughout.
+
+After verification, persist the mount via the `nas.service` mount unit (see below).
 
 ---
 
