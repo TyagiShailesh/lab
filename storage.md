@@ -2,164 +2,141 @@
 
 ## At a glance
 
-Two-tier hybrid on `/nas`. **HDDs are the truth, NVMes are pure cache.** XFS on top.
+Two-tier hybrid on `/nas`. **HDDs are the truth, NVMes are pure write-back cache.** XFS on top of bcache.
 
 | Layer | Devices | Role |
 |---|---|---|
 | HDD truth | 2× Seagate Exos 14 TB → `mdadm` RAID1 → `/dev/md0` | Durable storage; survives 1-disk loss; ~12.7 TB usable |
-| NVMe cache | WD SN850X 2 TB + Samsung 990 Pro 2 TB → `mdadm` RAID0 → `/dev/md1` | Hot cache; ~3.6 TB; **single NVMe failure loses dirty data — accepted because we keep source until we verify NAS-side flush** |
-| LVM | VG `vg_nas` over `md0` + `md1` | `nas_data` (cached LV, the FS), `xfs_log` (external journal pinned to `md0`) |
-| Cache attach | `lvconvert --type cache --cachevol nas_cache --cachemode writeback` | dm-cache writeback: writes ack on NVMe, async-flush to HDD |
-| Filesystem | XFS on `/dev/vg_nas/nas_data`, log on `/dev/vg_nas/xfs_log` | Journal on HDD survives total cache loss, FS recovers cleanly |
+| NVMe cache | WD SN850X 2 TB + Samsung 990 Pro 2 TB → `mdadm` RAID0 → `/dev/md1` | Hot cache; 3.6 TB; **single NVMe failure loses dirty data — accepted because we keep source until verified** |
+| LVM | `vg_nas` over `md0` only | `nas_data` (bcache backing) + `xfs_log` (XFS external journal) |
+| **bcache** | `/dev/md1` cache + `/dev/vg_nas/nas_data` backing → `/dev/bcache0` | **writeback** mode, 4 MiB buckets, `sequential_cutoff=0` (cache absorbs all I/O), ~1 GiB RAM for full 3.6 TB cache |
+| Filesystem | XFS on `/dev/bcache0`, log on `/dev/vg_nas/xfs_log` | Journal on HDD survives total cache loss |
 
 ```
 sda  ─┐
-sdb  ─┤── mdadm RAID1 ── md0 ──┐
-                               ├── vg_nas ─┐
-nvme1n1 ─┐                     │           ├── nas_data (XFS data, cached)  ── /nas
-nvme2n1 ─┤── mdadm RAID0 ── md1 ─┘         │      ↑
-                                           │      │ writeback cache
-                                           │      ▼ (async flush)
-                                           ├── nas_cache (NVMe-only LV, dm-cache vol)
-                                           │
-                                           └── xfs_log  (HDD-only LV, XFS external journal)
+sdb  ─┤── mdadm RAID1 ── md0 ── vg_nas ─┬── nas_data (bcache backing) ─┐
+                                        │                              ├── /dev/bcache0 ── XFS ── /nas
+                                        └── xfs_log (XFS journal)      │            (writeback)
+                                                                       │
+nvme1n1 ─┐                                                             │
+nvme2n1 ─┤── mdadm RAID0 ── md1 ─────────────── (bcache cache device) ─┘
 ```
 
 Mount: `nas.service` (systemd unit, not fstab — see §Mount).
 
+## Measured speeds (kernel 7.0.5, bucket 4M, sequential_cutoff=0)
+
+| Workload | Throughput |
+|---|---|
+| `dd 4 GB direct, bs=4M` | **5.2 GB/s** |
+| `dd 8 GB direct, bs=4M` | 5.4 GB/s |
+| `dd 16 GB direct, bs=4M` | 5.1 GB/s |
+| `dd 32 GB direct, bs=4M` | 5.1 GB/s — still SSD-rate, no throttle |
+| `dd 4 × 8 GB parallel direct` | 3.1 GB/s per stream → **12.4 GB/s aggregate** |
+| `dd 4 GB read, cold cache` | 8.5 GB/s (page-cache assisted) |
+| Sustained writes after cache fills (~3.5 TB) | ~150 MB/s (HDD drain rate) |
+
+This saturates the NVMe RAID0 (~6 GB/s ceiling per `dd` on raw `/dev/md1`) for single-stream, and exceeds it for parallel — chipset DMI Gen4 x8 (~16 GB/s shared) is the next limit.
+
 ---
 
-## Why this stack
+## Why this stack — and the design changes that got us here
 
-After bcachefs's `device evacuate` stalled in v1.37.5 and a wipe-while-btree-on-cache caused a 30 min `scan_for_btree_nodes` recovery + 3 TB of orphaned data on 2026-05-08, we switched to a stack of mainline-kernel-since-2014 components, each doing one thing well:
+This `/nas` was previously bcachefs (single-FS hybrid). After bcachefs's `device evacuate` stalled in v1.37.5 and a wipe-while-btree-on-cache forced a 30-min `scan_for_btree_nodes` recovery + 3.8 TB of orphaned files (2026-05-08), we switched to a stack of mainline-since-2013 components, each doing one thing well.
 
-- **mdadm + RAID1** — boring, proven, well-understood mirror. `mdadm --replace` is the canonical disk-swap path. Single-HDD failure tolerated; resync from the survivor when replaced.
-- **mdadm + RAID0 on NVMes** — doubles cache capacity (3.6 TB vs 1.8 TB single device) and doubles raw bandwidth. Single-NVMe failure loses the cache pool; **acceptable trade because the source is still on the writing host until the operator confirms the cache has flushed to HDD** (see §Operations / cache flush).
-- **LVM dm-cache (writeback)** — the kernel's writeback cache layer. Per `Documentation/admin-guide/device-mapper/cache.rst`: writes hit the cache, ack, then drain to backing in the background. Cache device removable online via `lvconvert --uncache` if you need to swap NVMes.
-- **XFS with external log on HDD** — the journal lives on `xfs_log` (an LV pinned to `md0`), *not* in the cached LV. Total cache loss leaves a coherent journal on HDD; XFS replays cleanly. This is the analog of `data_allowed=user` from the old bcachefs setup — the *enforcement* that metadata never lives on cache.
+We tried three cache designs in this session:
 
-What we give up vs the alternatives, honestly:
+1. **dm-cache writeback** — `smq` policy is hot-spot-driven; sequential streams went straight to HDD (108 MB/s sustained). Even with `sequential_threshold=0`, the setting is *silently ignored* per `lvmcache(7)` ("mq is now an alias for smq, the listed mq tunables have no effect"). Wrong tool.
+2. **dm-writecache** — caches every write per kernel doc, but `block_size ≤ PAGE_SIZE` (4 KiB on x86) is a hard kernel constraint. At 4 K, full 3.6 TB cachevol needs ~73 GiB metadata > 62 GiB RAM → OOM. Smaller cachevol (~2 TB) works but loses 1.6 TB of cache space.
+3. **bcache** — different metadata model (B-tree, bucket-based). Buckets are 512 KiB to 8 MiB, vs dm-writecache's 4 KiB cap. Full 3.6 TB cache costs ~1 GiB RAM. Settled here.
 
-- vs **ZFS mirror + special vdev** — no end-to-end checksums, no scrub-based bit-rot detection. Mitigation: monthly file-level integrity check (e.g., `sha256sum -c`) on tree manifests of important paths.
-- vs **bcachefs** — no native filesystem-level cache integration; one more layer to reason about. Mitigation: each layer has a 10+ year track record and well-defined recovery commands.
+What bcache buys vs the others:
+- **Configurable bucket size** — 4 MiB is appropriate for media files; metadata cost is ~70× lower than dm-writecache.
+- **`sequential_cutoff` tunable** — set to 0 to disable bypass, so all writes (including big sequential SMB copies) are absorbed by the cache. Per `Documentation/admin-guide/bcache.rst`: *"Some workloads (e.g. sequential video) work better with this set to 0."*
+- **Caches reads too** (unlike dm-writecache), with adaptive LRU promotion.
+- **Cache device is a pure cache** — losing both NVMes only loses dirty (not-yet-flushed) data; `bcache stop` cleanly detaches.
 
-What we keep:
-
-- True writeback cache: foreground writes ack at NVMe speed.
-- Read cache: hot blocks promoted to NVMe automatically by dm-cache.
-- HDD truth: every byte on HDD is mirrored across both Exos drives.
-- Cache safely wipeable: any NVMe operation (replace, swap, wipe, resize) cannot break the FS, because the journal and metadata live on HDD.
+What we give up vs ZFS:
+- No end-to-end checksums or scrub-based bit-rot detection. Mitigation: schedule monthly `sha256sum -c` against tree manifests of important paths. Not a replacement, but a sanity net.
 
 ---
 
 ## Build (one-time, destructive)
 
-The complete formatting sequence. **Wipes sda, sdb, nvme1n1, nvme2n1.** System drive `nvme0n1` is untouched.
+Wipes `sda`, `sdb`, `nvme1n1`, `nvme2n1`. System drive `nvme0n1` untouched.
 
 ```sh
-# Pre-flight: stop everything that touches /nas
+# Pre-flight
 systemctl stop smbd nmbd nas.service
 
-# Wipe any prior FS signatures on the four data drives
+# Wipe
 wipefs -a /dev/sda /dev/sdb /dev/nvme1n1 /dev/nvme2n1
-blkdiscard /dev/nvme1n1 /dev/nvme2n1   # SSDs only, full TRIM
+blkdiscard /dev/nvme1n1 /dev/nvme2n1   # full TRIM, NVMe only
 
-# RAID1 across HDDs (truth tier)
-mdadm --create /dev/md0 --level=1 --raid-devices=2 \
-      --metadata=1.2 --bitmap=internal \
-      /dev/sda /dev/sdb
-
-# RAID0 across NVMes (cache tier)
-mdadm --create /dev/md1 --level=0 --raid-devices=2 \
-      --metadata=1.2 \
+# RAID
+mdadm --create /dev/md0 --level=1 --raid-devices=2 --metadata=1.2 \
+      --bitmap=internal --assume-clean --run /dev/sda /dev/sdb
+mdadm --create /dev/md1 --level=0 --raid-devices=2 --metadata=1.2 --run \
       /dev/nvme1n1 /dev/nvme2n1
+mdadm --detail --scan > /etc/mdadm/mdadm.conf
 
-# Persist mdadm config so arrays assemble at boot
-mdadm --detail --scan >> /etc/mdadm/mdadm.conf
-update-initramfs -u
+# LVM (md0 only — md1 is bcache cache, not an LVM PV)
+pvcreate -ff -y /dev/md0
+vgcreate vg_nas /dev/md0
+lvcreate -y -n xfs_log  -L 2G   vg_nas /dev/md0   # external XFS journal, HDD-only
+lvcreate -y -n nas_data -l 95%FREE vg_nas /dev/md0   # bcache backing
 
-# LVM
-pvcreate /dev/md0 /dev/md1
-vgcreate vg_nas /dev/md0 /dev/md1
+# bcache (writeback, 4 MiB buckets)
+apt install -y bcache-tools
+make-bcache --writeback --discard --bucket 4M \
+            -B /dev/vg_nas/nas_data -C /dev/md1
+udevadm settle
 
-# Pinned-to-HDD external journal (small, separate LV on md0 only)
-lvcreate -n xfs_log -L 2G vg_nas /dev/md0
+# Tunables (cache_mode is in superblock; sequential_cutoff is sysfs-only — re-applied at boot by nas.service)
+echo writeback > /sys/block/bcache0/bcache/cache_mode
+echo 0         > /sys/block/bcache0/bcache/sequential_cutoff
 
-# Backing LV (XFS data) on HDDs
-lvcreate -n nas_data -l 95%FREE vg_nas /dev/md0
-
-# Cache vol on NVMes
-lvcreate -n nas_cache -l 95%FREE vg_nas /dev/md1
-
-# Attach cache (writeback). 'cachevol' style is the modern simpler form.
-lvconvert --yes --type cache \
-          --cachevol vg_nas/nas_cache \
-          --cachemode writeback \
-          vg_nas/nas_data
-
-# Format: XFS data on the cached LV, journal on the HDD-only LV
-mkfs.xfs -f -l logdev=/dev/vg_nas/xfs_log /dev/vg_nas/nas_data
-
-# Mount
+# XFS — data on /dev/bcache0, log on the HDD-only LV
+mkfs.xfs -f -l logdev=/dev/vg_nas/xfs_log,size=512m -L nas /dev/bcache0
 mkdir -p /nas
-mount -o logdev=/dev/vg_nas/xfs_log,noatime /dev/vg_nas/nas_data /nas
+mount -o logdev=/dev/vg_nas/xfs_log,noatime /dev/bcache0 /nas
 
-# Share roots + ownership
+# Share roots
 mkdir -p /nas/media /nas/st /nas/data /nas/tm
 chown st:st /nas/media /nas/st /nas/data /nas/tm
 chmod 755 /nas/{media,st,data,tm}
 
-# Bring services back
+# Services
 systemctl start smbd nmbd
 ```
-
-### Tuning the cache (mandatory)
-
-dm-cache's default `smq` policy **bypasses sequential I/O from the cache** (sensible for general-purpose servers; exactly wrong for a media NAS). Without tuning, sequential writes go straight to HDD at ~108 MB/s. With tuning: ~1.9 GB/s burst, page-cache-buffered writes ~7.7 GB/s, cache-warmed reads ~9 GB/s.
-
-```sh
-# Disable sequential bypass + raise migration ceiling. Persist via lvchange.
-lvchange --cachesettings 'sequential_threshold=0 migration_threshold=10485760' vg_nas/nas_data
-```
-
-| Setting | Default | Tuned | Effect |
-|---|---|---|---|
-| `sequential_threshold` (sectors) | 8 | **0** | never bypass cache for sequential I/O — bursts ride at NVMe speed |
-| `migration_threshold` (sectors/sec) | 2048 (~1 MB/s) | **10485760 (~5 GB/s)** | aggressive background drain SSD → HDD |
-
-Sustained-write ceiling is still bounded by HDD drain (~150 MB/s practical for the Exos mirror). For workloads larger than ~3 TB of continuous writes, throughput falls to that ceiling once cache fills. For typical bursty workloads, the cache rides at NVMe speed throughout.
-
-After verification, persist the mount via the `nas.service` mount unit (see below).
 
 ---
 
 ## Mount
 
-Old `nas.service` was a `bcachefs mount` wrapper. The replacement is a normal mount. Either `/etc/fstab` or a systemd unit; we use a unit to keep the boot dependency on `multi-user.target` and avoid hanging boot if a drive is missing.
+`nas.service` is the entry point. udev auto-registers bcache when md1 + the nas_data LV both come up at boot.
 
 ```ini
 # /etc/systemd/system/nas.service
 [Unit]
-Description=Mount NAS storage pool (XFS over LVM cache over mdraid)
+Description=Mount NAS storage pool (XFS over bcache writeback over mdraid)
 After=systemd-modules-load.service local-fs-pre.target
 Wants=local-fs-pre.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=/sbin/mdadm --assemble --scan
-ExecStartPre=/sbin/vgchange -ay vg_nas
-ExecStart=/usr/bin/mount -o logdev=/dev/vg_nas/xfs_log,noatime /dev/vg_nas/nas_data /nas
+ExecStartPre=-/sbin/mdadm --assemble --scan
+ExecStartPre=-/sbin/vgchange -ay vg_nas
+# Wait for udev to surface /dev/bcache0
+ExecStartPre=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do [ -b /dev/bcache0 ] && exit 0; sleep 1; done; echo /dev/bcache0 not found; exit 1'
+# sequential_cutoff is sysfs-only and resets to default each boot
+ExecStartPre=/bin/sh -c 'echo writeback > /sys/block/bcache0/bcache/cache_mode; echo 0 > /sys/block/bcache0/bcache/sequential_cutoff'
+ExecStart=/usr/bin/mount -o logdev=/dev/vg_nas/xfs_log,noatime /dev/bcache0 /nas
 ExecStop=/usr/bin/umount /nas
 
 [Install]
 WantedBy=multi-user.target
-```
-
-Equivalent fstab entry, if preferred:
-
-```
-/dev/vg_nas/nas_data  /nas  xfs  defaults,noatime,logdev=/dev/vg_nas/xfs_log  0  2
 ```
 
 ---
@@ -168,64 +145,58 @@ Equivalent fstab entry, if preferred:
 
 ### Drain cache before deleting source on the writing host
 
-The point of using a writeback cache safely. Workflow on the lab box after a big copy:
+Workflow that makes the writeback risk operational, not theoretical:
 
 ```sh
-sync                                                       # flush page cache to dm-cache
-dmsetup message vg_nas-nas_data 0 cleaner 1                # tell dm-cache to flush all dirty
-# poll until dirty hits 0
+sync                                                # flush page cache
+echo 1 > /sys/block/bcache0/bcache/writeback_running   # already on; harmless
+echo 0 > /sys/block/bcache0/bcache/writeback_percent   # drain to 0% dirty target
+# poll until dirty_data hits 0
 while :; do
-  dirty=$(lvs --noheadings -o cache_dirty_blocks vg_nas/nas_data | tr -d ' ')
-  echo "dirty: $dirty"
-  [ "$dirty" = "0" ] && break
+  dirty=$(awk '{print $1}' /sys/block/bcache0/bcache/dirty_data)
+  echo "dirty bytes: $dirty"
+  [ "$dirty" -le 1024 ] && break
   sleep 5
 done
-echo "safe to delete source on the Mac"
+echo 10 > /sys/block/bcache0/bcache/writeback_percent  # restore default
 ```
 
-Once `cache_dirty_blocks=0`, every byte exists on the HDD mirror and the source can be deleted.
+After `dirty_data ≈ 0`, every byte exists durably on the HDD mirror. Safe to delete source on the Mac.
 
 ### Inspect cache state
 
 ```sh
-lvs -o name,cache_mode,cache_settings,cache_used_blocks,cache_dirty_blocks,cache_total_blocks vg_nas/nas_data
+cat /sys/block/bcache0/bcache/cache_mode
+cat /sys/block/bcache0/bcache/sequential_cutoff
+cat /sys/block/bcache0/bcache/dirty_data
+cat /sys/fs/bcache/*/cache_available_percent
+cat /sys/block/bcache0/bcache/stats_total/cache_hit_ratio
 ```
-
-`cache_used_blocks` is total cache occupancy (clean + dirty). `cache_dirty_blocks` is the at-risk subset.
 
 ### Replace a failed HDD
 
 ```sh
 mdadm --manage /dev/md0 --replace /dev/<failed-id> --with /dev/<new-id>
-# resync runs in the background; check with:
-cat /proc/mdstat
+cat /proc/mdstat   # watch resync
 ```
 
 ### Replace a failed NVMe
 
-RAID0 of the cache pool means a single NVMe failure takes the cache offline. The FS keeps working — dm-cache transitions to direct-HDD mode for blocks not in the (now-gone) cache. **Any dirty blocks at the moment of failure are lost** (consistent with the trade we explicitly accepted). Recovery sequence:
+RAID0 cache means a single NVMe failure takes the whole cache offline. Dirty blocks at the moment of failure are lost (the documented trade). Recovery:
 
 ```sh
-# 1. Detach cache from the data LV (so LVM stops trying to use the dead md1)
-lvconvert --uncache vg_nas/nas_data
-
-# 2. Stop and rebuild md1 with the surviving + new NVMe
+# 1. Stop bcache cache set, then stop md1
+echo 1 > /sys/fs/bcache/<cset_uuid>/stop
 mdadm --stop /dev/md1
-wipefs -a /dev/<new-nvme>
-mdadm --create /dev/md1 --level=0 --raid-devices=2 --metadata=1.2 \
+
+# 2. Replace failed NVMe physically; rebuild md1
+wipefs -a /dev/<surviving-nvme> /dev/<new-nvme>
+mdadm --create /dev/md1 --level=0 --raid-devices=2 --metadata=1.2 --run \
       /dev/<surviving-nvme> /dev/<new-nvme>
 
-# 3. Recreate cache vol and re-attach
-lvcreate -n nas_cache -l 95%FREE vg_nas /dev/md1
-lvconvert --yes --type cache --cachevol vg_nas/nas_cache --cachemode writeback vg_nas/nas_data
-```
-
-### Resize the cache
-
-```sh
-lvconvert --uncache vg_nas/nas_data
-lvresize -L <new-size> vg_nas/nas_cache
-lvconvert --yes --type cache --cachevol vg_nas/nas_cache --cachemode writeback vg_nas/nas_data
+# 3. Re-create bcache cache set and attach to existing backing
+make-bcache --writeback --discard --bucket 4M -C /dev/md1
+echo <new_cache_set_uuid> > /sys/block/bcache0/bcache/attach
 ```
 
 ---
@@ -235,11 +206,11 @@ lvconvert --yes --type cache --cachevol vg_nas/nas_cache --cachemode writeback v
 | Failure | Effect | Recovery |
 |---|---|---|
 | 1 HDD dies | RAID1 degraded; FS keeps running at half write throughput | `mdadm --replace`; auto-resync |
-| 1 NVMe dies | RAID0 cache pool fails; dm-cache enters passthrough; **dirty blocks lost** | uncache → rebuild md1 → re-attach cache |
-| Both NVMes die | same as above (cache gone, dirty lost) | same as above |
+| 1 NVMe dies | RAID0 cache pool fails → bcache transitions cache to error state; **dirty blocks lost** | rebuild md1 → re-create cache → re-attach |
+| Both NVMes die | same as above | same as above |
 | Both HDDs die | catastrophic — no truth | restore from backup |
-| Power loss with dirty cache | dirty blocks pre-flush are lost | XFS replays journal from `xfs_log` (on HDD); FS itself is consistent |
-| Cache device hot-removed | dm-cache halts, FS suspends until LVM responds | `lvconvert --uncache` (force), then proceed as failed-NVMe recovery |
+| Power loss with dirty cache | dirty blocks pre-flush are lost | XFS replays journal from `xfs_log` (on HDD); FS is consistent |
+| Cache device hot-removed | bcache halts the bcache0 device | re-create cache and re-attach |
 
 Bit-rot is **not detected** by this stack — there's no per-block checksum. Mitigation: periodic `sha256sum -c` against tree manifests of important paths (Photos, source code, models). Schedule monthly.
 
