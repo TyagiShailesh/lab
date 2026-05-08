@@ -53,8 +53,10 @@ make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
   --enable MD_RAID0 --enable MD_RAID1 \
   --enable BLK_DEV_DM --enable DM_RAID \
   --enable DM_CACHE --enable DM_CACHE_SMQ \
+  --enable DM_WRITECACHE \
   --enable DM_THIN_PROVISIONING \
   --enable DM_BUFIO --enable DM_PERSISTENT_DATA \
+  --enable BCACHE \
   --enable XFS_FS --enable XFS_QUOTA --enable XFS_POSIX_ACL
 make -C "$build" ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- olddefconfig
 
@@ -110,7 +112,7 @@ fail=0
 [ -f "$nvidia_dest/nvidia.ko" ] && echo "OK: nvidia.ko" || { echo "FAIL: nvidia.ko missing"; fail=1; }
 [ -f "$nvidia_dest/nvidia-drm.ko" ] && echo "OK: nvidia-drm.ko" || { echo "FAIL: nvidia-drm.ko missing"; fail=1; }
 # Verify the storage configs are actually built-in (=y) in the produced .config.
-for cfg in BLK_DEV_MD MD_RAID0 MD_RAID1 DM_RAID DM_CACHE DM_CACHE_SMQ XFS_FS; do
+for cfg in BLK_DEV_MD MD_RAID0 MD_RAID1 DM_RAID DM_CACHE DM_CACHE_SMQ DM_WRITECACHE BCACHE XFS_FS; do
   if grep -q "^CONFIG_${cfg}=y" "$build/.config"; then
     echo "OK: CONFIG_${cfg}=y"
   else
