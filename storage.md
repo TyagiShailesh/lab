@@ -7,10 +7,10 @@ Two-tier hybrid on `/nas`. **HDDs are the truth, NVMes are pure write-back cache
 | Layer | Devices | Role |
 |---|---|---|
 | HDD truth | 2× Seagate Exos 14 TB → `mdadm` RAID1 → `/dev/md0` | Durable storage; survives 1-disk loss; ~12.7 TB usable |
-| NVMe cache | WD SN850X 2 TB + Samsung 990 Pro 2 TB → `mdadm` RAID0 → `/dev/md1` | Hot cache; 3.6 TB; **single NVMe failure loses dirty data — accepted because we keep source until verified** |
+| NVMe cache | WD SN850X 2 TB + Samsung 990 Pro 2 TB → **`mdadm` RAID1** → `/dev/md1` | Hot cache; **1.86 TB** mirrored; **single NVMe failure: no FS impact** (cache survives on the other drive) |
 | LVM | `vg_nas` over `md0` only | `nas_data` (bcache backing) + `xfs_log` (XFS external journal) |
-| **bcache** | `/dev/md1` cache + `/dev/vg_nas/nas_data` backing → `/dev/bcache0` | **writeback** mode, 4 MiB buckets, `sequential_cutoff=0` (cache absorbs all I/O), ~1 GiB RAM for full 3.6 TB cache |
-| Filesystem | XFS on `/dev/bcache0`, log on `/dev/vg_nas/xfs_log` | Journal on HDD survives total cache loss |
+| **bcache** | `/dev/md1` cache + `/dev/vg_nas/nas_data` backing → `/dev/bcache0` | **writeback** mode, 4 MiB buckets, `sequential_cutoff=0` (cache absorbs all I/O), ~0.5 GiB RAM |
+| Filesystem | XFS on `/dev/bcache0`, log on `/dev/vg_nas/xfs_log` | Journal on HDD; replays on power-loss with cache intact |
 
 ```
 sda  ─┐
@@ -19,24 +19,25 @@ sdb  ─┤── mdadm RAID1 ── md0 ── vg_nas ─┬── nas_data (bc
                                         └── xfs_log (XFS journal)      │            (writeback)
                                                                        │
 nvme1n1 ─┐                                                             │
-nvme2n1 ─┤── mdadm RAID0 ── md1 ─────────────── (bcache cache device) ─┘
+nvme2n1 ─┤── mdadm RAID1 ── md1 ─────────────── (bcache cache device) ─┘
+                  (mirrored — single NVMe failure tolerated)
 ```
 
 Mount: `nas.service` (systemd unit, not fstab — see §Mount).
 
-## Measured speeds (kernel 7.0.5, bucket 4M, sequential_cutoff=0)
+## Measured speeds (kernel 7.0.5, bucket 4M, sequential_cutoff=0, RAID1 cache)
 
 | Workload | Throughput |
 |---|---|
-| `dd 4 GB direct, bs=4M` | **5.2 GB/s** |
-| `dd 8 GB direct, bs=4M` | 5.4 GB/s |
-| `dd 16 GB direct, bs=4M` | 5.1 GB/s |
-| `dd 32 GB direct, bs=4M` | 5.1 GB/s — still SSD-rate, no throttle |
-| `dd 4 × 8 GB parallel direct` | 3.1 GB/s per stream → **12.4 GB/s aggregate** |
-| `dd 4 GB read, cold cache` | 8.5 GB/s (page-cache assisted) |
-| Sustained writes after cache fills (~3.5 TB) | ~150 MB/s (HDD drain rate) |
+| `dd 4 GB direct, bs=4M` | **2.6 GB/s** |
+| `dd 8 GB direct, bs=4M` | 2.7 GB/s |
+| `dd 16 GB direct, bs=4M` | 2.8 GB/s |
+| `dd 32 GB direct, bs=4M` | 2.8 GB/s — still SSD-rate, no throttle |
+| `dd 4 × 8 GB parallel direct` | ~890 MB/s per stream → ~3.5 GB/s aggregate |
+| `dd 4 GB read, cold cache` | 7.1 GB/s (page-cache + cache assisted) |
+| Sustained writes after cache fills (~1.8 TB) | ~150 MB/s (HDD drain rate) |
 
-This saturates the NVMe RAID0 (~6 GB/s ceiling per `dd` on raw `/dev/md1`) for single-stream, and exceeds it for parallel — chipset DMI Gen4 x8 (~16 GB/s shared) is the next limit.
+The cache absorbs writes at ~2.7 GB/s sustained — bounded by single-NVMe write speed because RAID1 mirrors every write to both drives. That's ~20× HDD speed and well above what SMB single-channel can deliver. We chose RAID1 over RAID0 for the **safety guarantee that a single NVMe failure cannot corrupt the FS**.
 
 ---
 
@@ -73,11 +74,11 @@ systemctl stop smbd nmbd nas.service
 wipefs -a /dev/sda /dev/sdb /dev/nvme1n1 /dev/nvme2n1
 blkdiscard /dev/nvme1n1 /dev/nvme2n1   # full TRIM, NVMe only
 
-# RAID
+# RAID — both arrays mirrored (md0 = HDD truth, md1 = NVMe cache mirror)
 mdadm --create /dev/md0 --level=1 --raid-devices=2 --metadata=1.2 \
       --bitmap=internal --assume-clean --run /dev/sda /dev/sdb
-mdadm --create /dev/md1 --level=0 --raid-devices=2 --metadata=1.2 --run \
-      /dev/nvme1n1 /dev/nvme2n1
+mdadm --create /dev/md1 --level=1 --raid-devices=2 --metadata=1.2 \
+      --bitmap=internal --assume-clean --run /dev/nvme1n1 /dev/nvme2n1
 mdadm --detail --scan > /etc/mdadm/mdadm.conf
 
 # LVM (md0 only — md1 is bcache cache, not an LVM PV)
@@ -180,24 +181,47 @@ mdadm --manage /dev/md0 --replace /dev/<failed-id> --with /dev/<new-id>
 cat /proc/mdstat   # watch resync
 ```
 
-### Replace a failed NVMe
+### Replace a failed NVMe (md1 RAID1)
 
-RAID0 cache means a single NVMe failure takes the whole cache offline. Dirty blocks at the moment of failure are lost (the documented trade). Recovery:
+Single NVMe failure: the array goes degraded but bcache continues from the surviving drive. **No data loss, no FS impact.**
 
 ```sh
-# 1. Stop bcache cache set, then stop md1
-echo 1 > /sys/fs/bcache/<cset_uuid>/stop
+# Optional but recommended: confirm the failed drive
+cat /proc/mdstat
+mdadm --detail /dev/md1
+
+# Replace the failed drive physically, then re-add to the mirror
+wipefs -a /dev/<new-nvme>
+mdadm --add /dev/md1 /dev/<new-nvme>
+# auto-resync; watch via:
+cat /proc/mdstat
+```
+
+### Recover from total cache loss (both NVMes failed)
+
+This is the unlikely case where both NVMes failed simultaneously with dirty data. **Per `bcache.rst`, expect filesystem corruption.** The recovery is lossy:
+
+```sh
+# 1. Force-run backing without cache (lossy — FS will be inconsistent)
+echo 1 > /sys/block/<backing>/bcache/running
+
+# 2. CRITICAL: do NOT mount yet. Run xfs_repair first.
+xfs_repair -n -l /dev/vg_nas/xfs_log /dev/bcache0    # dry-run, expect errors
+xfs_repair -l /dev/vg_nas/xfs_log /dev/bcache0       # commit repair
+
+# 3. Rebuild md1 from new NVMes, recreate cache, re-attach to backing
 mdadm --stop /dev/md1
-
-# 2. Replace failed NVMe physically; rebuild md1
-wipefs -a /dev/<surviving-nvme> /dev/<new-nvme>
-mdadm --create /dev/md1 --level=0 --raid-devices=2 --metadata=1.2 --run \
-      /dev/<surviving-nvme> /dev/<new-nvme>
-
-# 3. Re-create bcache cache set and attach to existing backing
+mdadm --create /dev/md1 --level=1 --raid-devices=2 --metadata=1.2 \
+      --bitmap=internal --assume-clean --run /dev/<nvme-1> /dev/<nvme-2>
 make-bcache --writeback --discard --bucket 4M -C /dev/md1
 echo <new_cache_set_uuid> > /sys/block/bcache0/bcache/attach
+
+# 4. Mount and inspect what survived
+mount -o logdev=/dev/vg_nas/xfs_log,noatime /dev/bcache0 /nas
+ls /nas/lost+found  # repair-relocated files end up here
 ```
+
+Files that had data fully migrated to HDD: intact. Files with metadata-only-in-cache writes: likely in `lost+found` with inode-numbered names. Restore what you can; replace what you can't.
 
 ---
 
@@ -205,14 +229,20 @@ echo <new_cache_set_uuid> > /sys/block/bcache0/bcache/attach
 
 | Failure | Effect | Recovery |
 |---|---|---|
-| 1 HDD dies | RAID1 degraded; FS keeps running at half write throughput | `mdadm --replace`; auto-resync |
-| 1 NVMe dies | RAID0 cache pool fails → bcache transitions cache to error state; **dirty blocks lost** | rebuild md1 → re-create cache → re-attach |
-| Both NVMes die | same as above | same as above |
+| 1 HDD dies | RAID1 degraded; FS keeps running | `mdadm --replace`; auto-resync |
+| **1 NVMe dies** | **md1 RAID1 degraded; cache continues serving from surviving drive. No FS impact, no dirty data loss.** | replace failed NVMe, `mdadm --add`, auto-resync |
+| Both NVMes die | bcache cache lost; if dirty data was in flight, **expect FS corruption per `bcache.rst`** ("don't expect the filesystem to be recoverable - massive filesystem corruption"). The XFS external log on HDD does *not* save you — it replays metadata against a data device whose recent writes were trapped in the dead cache. | force-run backing → `xfs_repair -n` (dry) → `xfs_repair` → mount; expect file/folder loss + lost+found content |
 | Both HDDs die | catastrophic — no truth | restore from backup |
-| Power loss with dirty cache | dirty blocks pre-flush are lost | XFS replays journal from `xfs_log` (on HDD); FS is consistent |
-| Cache device hot-removed | bcache halts the bcache0 device | re-create cache and re-attach |
+| Power loss with cache intact | dirty data preserved on cache; bcache journal + XFS log replay produce consistent FS on next mount | nothing to do; mount as normal |
+| Cache device hot-removed (mid-operation) | `stop_when_cache_set_failed=auto` halts /dev/bcache0; if dirty, FS may need repair | replace, re-create cache, re-attach; run `xfs_repair` first |
 
 Bit-rot is **not detected** by this stack — there's no per-block checksum. Mitigation: periodic `sha256sum -c` against tree manifests of important paths (Photos, source code, models). Schedule monthly.
+
+### Why single NVMe failure is safe
+
+Writeback mode means file *data* and XFS *metadata* both route through bcache. If the cache device dies with dirty blocks (writes that haven't drained to HDD yet), you don't just lose those file bytes — you lose XFS metadata that may reference unrelated parts of the filesystem (per `Documentation/admin-guide/bcache.rst` line 121: *"don't expect the filesystem to be recoverable"*). The XFS journal on a separate LV survives, but it replays metadata operations against the data device's stale state and cannot reconstruct lost cache content.
+
+RAID1 of the NVMe cache pool fixes this for single-NVMe failure: when one drive dies, mdraid serves the cache from the surviving drive, bcache keeps running, no dirty data is lost. Two simultaneous NVMe failures is the only path to the corruption case above — rare with proper SMART monitoring + drive replacement.
 
 ---
 
