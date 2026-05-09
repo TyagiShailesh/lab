@@ -7,6 +7,7 @@ Topic docs:
 - Architecture and hardware: [../hardware.md](../hardware.md)
 - Networking, sysctl: [../network.md](../network.md)
 - Storage stack (`/nas` bcachefs hybrid pool): [../storage.md](../storage.md)
+- Performance tuning (CPU governor, NIC, sysctl, bcachefs flags): [../performance.md](../performance.md)
 - NVIDIA driver details: [../gpu.md](../gpu.md)
 
 ---

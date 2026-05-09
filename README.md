@@ -2,13 +2,14 @@
 
 Storage server + NVIDIA compute box (CUDA, NVENC).
 
-ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake) / 64 GB RAM / Ubuntu 24.04 / Kernel 7.0.0
+ASUS ProArt Z890-CREATOR WIFI / Intel Core Ultra 5 235 (Arrow Lake) / 64 GB RAM / Ubuntu 24.04 / Kernel 7.0.5
 
 ## Docs
 
 - [hardware.md](hardware.md) — board, CPU, RAM, slots, drives, BIOS
 - [network.md](network.md) — br0, 10GbE, Thunderbolt, WireGuard, sysctl
-- [storage.md](storage.md) — `/nas` storage stack (mdadm + LVM dm-cache + XFS) and Samba shares
+- [storage.md](storage.md) — `/nas` bcachefs hybrid pool (HDD truth + NVMe writeback) and Samba shares
+- [performance.md](performance.md) — CPU governor, NIC tuning, TCP/sysctl, bcachefs flags, Mac SMB ceiling
 - [gpu.md](gpu.md) — NVIDIA RTX PRO 2000: driver, CUDA
 - [media.md](media.md) — FFmpeg recipes + AI upscaling
 - [thunderbolt.md](thunderbolt.md) — Thunderbolt runbook
