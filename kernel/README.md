@@ -1,12 +1,12 @@
 # Kernel build pipeline
 
-Custom-compiled monolithic kernel + NVIDIA OOT modules. EFISTUB boot — **no GRUB, no initramfs**.
+Custom-compiled kernel + bcachefs + NVIDIA OOT modules. EFISTUB boot — **no GRUB, no initramfs**.
 
 Topic docs:
 
 - Architecture and hardware: [../hardware.md](../hardware.md)
 - Networking, sysctl: [../network.md](../network.md)
-- Storage stack (`/nas` mdadm + LVM + dm-cache + XFS): [../storage.md](../storage.md)
+- Storage stack (`/nas` bcachefs hybrid pool): [../storage.md](../storage.md)
 - NVIDIA driver details: [../gpu.md](../gpu.md)
 
 ---
@@ -28,7 +28,7 @@ UEFI firmware
               └── Kernel boots directly (monolithic, no initramfs)
                     └── XFS root mounted (built-in)
                           └── systemd starts
-                                └── nas.service mounts /nas (XFS over LVM dm-cache)
+                                └── nas.service mounts /nas (bcachefs pool)
 ```
 
 ### EFI boot entries
@@ -39,8 +39,10 @@ EFI entries are created by `install-kernel.sh` via `efibootmgr`. Old kernel entr
 
 - Root filesystem (XFS) must be built-in (`=y`), never a module — no initramfs to load it.
 - NVMe, SATA AHCI, EFI stub all built-in.
-- **Storage stack built-in** (`build-kernel.sh` enforces this): `BLK_DEV_MD`, `MD_RAID0`, `MD_RAID1`, `BLK_DEV_DM`, `DM_RAID`, `DM_CACHE`, `DM_CACHE_SMQ`, `DM_THIN_PROVISIONING`, `XFS_FS`. The build script verifies these are `=y` after `olddefconfig`.
+- bcachefs is loaded as an out-of-tree module at boot via `/etc/modules-load.d/bcachefs.conf` (and explicitly by `nas.service` before mount).
 - `CONFIG_TCP_CONG_BBR=y` + `CONFIG_NET_SCH_FQ=y` — BBR congestion control for 10GbE.
+- `CONFIG_CRYPTO_LZ4=y` + `CONFIG_CRYPTO_LZ4HC=y` + `CONFIG_BLK_DEV_INTEGRITY=y` — required by the bcachefs module build (selects `LZ4_COMPRESS`, `LZ4HC_COMPRESS`, `LZ4_DECOMPRESS`, `CRC64`).
+- `CONFIG_RUST=y` — required by future bcachefs versions; current build needs `rustup` + `bindgen-cli` + `libclang-dev` on the host or it silently stays off.
 - `CONFIG_MODULES=y` — optional subsystems as modules.
 - `CONFIG_IKCONFIG=y` + `CONFIG_IKCONFIG_PROC=y` — config at `/proc/config.gz`.
 - `CONFIG_PREEMPT_DYNAMIC=y` — runtime preemption switching.
@@ -49,6 +51,27 @@ EFI entries are created by `install-kernel.sh` via `efibootmgr`. Old kernel entr
 ---
 
 ## Out-of-tree modules (pre-built into tarball)
+
+### bcachefs
+
+| | |
+|---|---|
+| Module | `/usr/lib/modules/<kver>/kernel/fs/bcachefs/bcachefs.ko` |
+| Version | Pinned tag from [koverstreet/bcachefs-tools](https://github.com/koverstreet/bcachefs-tools) (see `build-kernel.sh`) |
+| Autoload | `/etc/modules-load.d/bcachefs.conf` |
+| Service load | `nas.service` runs `modprobe bcachefs` before mount |
+| Userspace tools | `/usr/local/sbin/bcachefs` (built from same repo) |
+
+Taint on load: `bcachefs: loading out-of-tree module taints kernel.`
+
+Build steps inside `build-kernel.sh`:
+
+1. Clone `koverstreet/bcachefs-tools` at the pinned tag (currently `v1.38.2`).
+2. Build the DKMS source tree, compile `bcachefs.ko` against the new kernel tree.
+3. Build the `bcachefs` userspace binary.
+4. Package `bcachefs.ko` + binary into the kernel tarball.
+
+The target system never needs a compiler or DKMS — everything is pre-built.
 
 ### NVIDIA open kernel modules
 
@@ -70,12 +93,12 @@ Target must have `nvidia-dkms-open` removed (only keep userspace libs from `cuda
 All build scripts live in this directory.
 
 ```
-build-kernel.sh     → builds bzImage + modules + NVIDIA OOT, creates .tar.zst
+build-kernel.sh     → builds bzImage + modules + bcachefs OOT + NVIDIA OOT, creates .tar.zst
 install-kernel.sh   → extracts tarball to target, creates EFI boot entry (finds disk by PARTUUID)
 build-rootfs.sh     → builds Ubuntu 24.04 minimal rootfs tarball
 install-rootfs.sh   → wipes disk, partitions, installs rootfs (DESTRUCTIVE)
 config              → kernel .config (back up before modifying)
-src/                → downloaded sources (kernel, nvidia-open) — gitignored
+src/                → downloaded sources (kernel, bcachefs-tools, nvidia-open) — gitignored
 build/              → build tree + staging — gitignored
 images/             → output tarballs — gitignored
 ```
@@ -83,8 +106,8 @@ images/             → output tarballs — gitignored
 ### Build kernel
 
 ```bash
-# 1. Edit build-kernel.sh if you want to bump the kernel/NVIDIA pin
-# 2. Build kernel + NVIDIA modules
+# 1. Edit build-kernel.sh if you want to bump the kernel/bcachefs/NVIDIA pin
+# 2. Build kernel + bcachefs + NVIDIA modules
 ./build-kernel.sh          # → images/linux-<version>.tar.zst
 
 # 3. Install (run on target — finds boot disk by PARTUUID)
@@ -104,9 +127,9 @@ images/             → output tarballs — gitignored
 ./install-kernel.sh images/linux-<version>.tar.zst
 ```
 
-`build-kernel.sh` enables the storage stack (`BLK_DEV_MD`, `MD_RAID0/1`, `DM_RAID`, `DM_CACHE`, `XFS_FS`) and BBR networking (`TCP_CONG_BBR`, `NET_SCH_FQ`) in the config, then builds the kernel and the NVIDIA open modules into a single tarball. Always update to the latest stable kernel and NVIDIA tag before building.
+`build-kernel.sh` enables BBR networking (`TCP_CONG_BBR`, `NET_SCH_FQ`), the bcachefs build dependencies (`CRYPTO_LZ4/LZ4HC`, `BLK_DEV_INTEGRITY`), XFS for root, and `RUST`, then builds the kernel, the bcachefs OOT module + userspace tools, and the NVIDIA open modules into a single tarball. Always update to the latest stable kernel and bcachefs/NVIDIA tags before building.
 
-`install-kernel.sh` extracts to target, copies `bzImage` to EFI partition, and creates/updates the EFI boot entry via `efibootmgr`.
+`install-kernel.sh` extracts to target, copies `bzImage` to EFI partition, writes `/etc/modules-load.d/bcachefs.conf`, and creates/updates the EFI boot entry via `efibootmgr`.
 
 ---
 
@@ -114,7 +137,7 @@ images/             → output tarballs — gitignored
 
 | Service | Purpose | Ref |
 |---|---|---|
-| `nas` | Mount `/nas` (XFS over LVM dm-cache over mdadm RAID) | [../storage.md](../storage.md) |
+| `nas` | Mount `/nas` (bcachefs hybrid pool) | [../storage.md](../storage.md) |
 | `smbd` / `nmbd` | Samba file sharing | [../storage.md](../storage.md) |
 | `avahi-daemon` | mDNS (lab.local) | — |
 | `wg-quick@wg0` | WireGuard VPN | [../network.md](../network.md) |

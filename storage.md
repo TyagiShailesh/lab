@@ -1,70 +1,59 @@
 # Storage
 
-## At a glance
+`/nas` is a **bcachefs hybrid pool** — HDD truth tier + NVMe write-back cache. Single filesystem, no mdadm, no LVM, no bcache layer.
 
-Two-tier hybrid on `/nas`. **HDDs are the truth, NVMes are pure write-back cache.** XFS on top of bcache.
+## At a glance
 
 | Layer | Devices | Role |
 |---|---|---|
-| HDD truth | 2× Seagate Exos 14 TB → `mdadm` RAID1 → `/dev/md0` | Durable storage; survives 1-disk loss; ~12.7 TB usable |
-| NVMe cache | WD SN850X 2 TB + Samsung 990 Pro 2 TB → **`mdadm` RAID1** → `/dev/md1` | Hot cache; **1.86 TB** mirrored; **single NVMe failure: no FS impact** (cache survives on the other drive) |
-| LVM | `vg_nas` over `md0` only | `nas_data` (bcache backing) + `xfs_log` (XFS external journal) |
-| **bcache** | `/dev/md1` cache + `/dev/vg_nas/nas_data` backing → `/dev/bcache0` | **writeback** mode, 4 MiB buckets, `sequential_cutoff=0` (cache absorbs all I/O), ~0.5 GiB RAM |
-| Filesystem | XFS on `/dev/bcache0`, log on `/dev/vg_nas/xfs_log` | Journal on HDD; replays on power-loss with cache intact |
+| HDD truth | 2× Seagate Exos 14 TB (`/dev/sda`, `/dev/sdb`) | `durability=1` each, `data_allowed=journal,btree,user`. With `data_replicas=2` + `metadata_replicas=2`, both replicas of every byte and every btree node land here. |
+| NVMe cache | Samsung 990 PRO 2 TB (`/dev/nvme1n1`) + WD SN850X 2 TB (`/dev/nvme2n1`) | `durability=0`, **`data_allowed=user` only**. Pure write-back cache. Wipeable at any time without structural risk. |
+| Filesystem | bcachefs v1.38.2 (kernel OOT module) | `foreground_target=ssd, background_target=hdd, promote_target=ssd, metadata_target=hdd` |
 
 ```
 sda  ─┐
-sdb  ─┤── mdadm RAID1 ── md0 ── vg_nas ─┬── nas_data (bcache backing) ─┐
-                                        │                              ├── /dev/bcache0 ── XFS ── /nas
-                                        └── xfs_log (XFS journal)      │            (writeback)
-                                                                       │
-nvme1n1 ─┐                                                             │
-nvme2n1 ─┤── mdadm RAID1 ── md1 ─────────────── (bcache cache device) ─┘
-                  (mirrored — single NVMe failure tolerated)
+sdb  ─┤── HDD label "hdd", durability=1, all data types ─┐
+                                                         │
+                                                         ├─► bcachefs /nas
+                                                         │     (writeback to ssd, drain to hdd)
+nvme1n1 ─┐                                               │
+nvme2n1 ─┤── NVMe label "ssd", durability=0, user only ──┘
 ```
 
-Mount: `nas.service` (systemd unit, not fstab — see §Mount).
-
-## Measured speeds (kernel 7.0.5, bucket 4M, sequential_cutoff=0, RAID1 cache)
-
-| Workload | Throughput |
-|---|---|
-| `dd 4 GB direct, bs=4M` | **2.6 GB/s** |
-| `dd 8 GB direct, bs=4M` | 2.7 GB/s |
-| `dd 16 GB direct, bs=4M` | 2.8 GB/s |
-| `dd 32 GB direct, bs=4M` | 2.8 GB/s — still SSD-rate, no throttle |
-| `dd 4 × 8 GB parallel direct` | ~890 MB/s per stream → ~3.5 GB/s aggregate |
-| `dd 4 GB read, cold cache` | 7.1 GB/s (page-cache + cache assisted) |
-| Sustained writes after cache fills (~1.8 TB) | ~150 MB/s (HDD drain rate) |
-
-The cache absorbs writes at ~2.7 GB/s sustained — bounded by single-NVMe write speed because RAID1 mirrors every write to both drives. That's ~20× HDD speed and well above what SMB single-channel can deliver. We chose RAID1 over RAID0 for the **safety guarantee that a single NVMe failure cannot corrupt the FS**.
+Mount: `nas.service` calls `bcachefs mount UUID=… /nas` (not fstab — see §Mount).
 
 ---
 
-## Why this stack — and the design changes that got us here
+## Why this stack — and the lessons that shaped it
 
-This `/nas` was previously bcachefs (single-FS hybrid). After bcachefs's `device evacuate` stalled in v1.37.5 and a wipe-while-btree-on-cache forced a 30-min `scan_for_btree_nodes` recovery + 3.8 TB of orphaned files (2026-05-08), we switched to a stack of mainline-since-2013 components, each doing one thing well.
+Cited from **Kent Overstreet's Principles of Operation** (`bcachefs.org/bcachefs-principles-of-operation.pdf`) and the upstream `bcachefs-tools` git tree.
 
-We tried three cache designs in this session:
+**Three hard rules from PoO + the failure mode we lived through (2026-05-08):**
 
-1. **dm-cache writeback** — `smq` policy is hot-spot-driven; sequential streams went straight to HDD (108 MB/s sustained). Even with `sequential_threshold=0`, the setting is *silently ignored* per `lvmcache(7)` ("mq is now an alias for smq, the listed mq tunables have no effect"). Wrong tool.
-2. **dm-writecache** — caches every write per kernel doc, but `block_size ≤ PAGE_SIZE` (4 KiB on x86) is a hard kernel constraint. At 4 K, full 3.6 TB cachevol needs ~73 GiB metadata > 62 GiB RAM → OOM. Smaller cachevol (~2 TB) works but loses 1.6 TB of cache space.
-3. **bcache** — different metadata model (B-tree, bucket-based). Buckets are 512 KiB to 8 MiB, vs dm-writecache's 4 KiB cap. Full 3.6 TB cache costs ~1 GiB RAM. Settled here.
+1. **Cache devices must be `durability=0`.** PoO §2.2.4.1: *"To use the SSDs as a pure write cache (data evictable once on HDD), set `durability=0` on the SSD devices."* PoO §8.5.4: *"The `durability=0` setting is essential for cache devices: it ensures bcachefs does not count cached copies toward the replica count, so losing the cache device never causes data loss."*
+   - Why this matters: with `durability=1` on cache devices, the allocator counts cache copies as a replica. Wiping the cache device then becomes a structural-corruption event — exactly the v1.37.5 incident that cost a 30-minute `scan_for_btree_nodes` recovery + 3.8 TB orphaned to `lost+found`.
 
-What bcache buys vs the others:
-- **Configurable bucket size** — 4 MiB is appropriate for media files; metadata cost is ~70× lower than dm-writecache.
-- **`sequential_cutoff` tunable** — set to 0 to disable bypass, so all writes (including big sequential SMB copies) are absorbed by the cache. Per `Documentation/admin-guide/bcache.rst`: *"Some workloads (e.g. sequential video) work better with this set to 0."*
-- **Caches reads too** (unlike dm-writecache), with adaptive LRU promotion.
-- **Cache device is a pure cache** — losing both NVMes only loses dirty (not-yet-flushed) data; `bcache stop` cleanly detaches.
+2. **`data_allowed=user` on cache devices is the hard gate.** PoO §8.5.7: *"The `data_allowed` member field restricts which data types a device can hold: journal, btree, or user data."* Setting `data_allowed=user` on the SSDs means the kernel **physically refuses** to place btree or journal blocks there — regardless of `metadata_target` drift, regardless of operator error. Combined with `metadata_target=hdd`, btree is locked onto durable storage. Wiping the cache cannot damage the FS.
 
-What we give up vs ZFS:
-- No end-to-end checksums or scrub-based bit-rot detection. Mitigation: schedule monthly `sha256sum -c` against tree manifests of important paths. Not a replacement, but a sanity net.
+3. **Two NVMes raw, not mdraid underneath.** PoO §8.5 treats devices individually; the read path tracks per-device latency to direct reads to the fastest replica. Layering bcachefs on mdraid for a `durability=0` cache is wasted — bcachefs already doesn't replicate cached copies, and mirroring at the block layer halves cache capacity for no benefit.
+
+**Why bcachefs over bcache+XFS or ZFS:**
+
+- **Bit-rot detection** — per-extent CRC32C/xxhash checksums by default; scrub-on-read self-heals from a good replica. PoO §2.2.1.
+- **Write-back cache that just works** — PoO §8.5.4 describes the canonical writeback triple (`foreground_target=ssd, background_target=hdd, promote_target=ssd`) as the documented design. dm-cache's smq doesn't promote sequential writes; dm-writecache caps block_size at PAGE_SIZE (4 KiB on x86) so 3.6 TB cache won't fit in 64 GB RAM.
+- **Single filesystem** — no mdadm + LVM + dm-cache + XFS layer cake. One bcachefs `format`, one mount, one set of stats, one `bcachefs fs usage`.
+
+**Trade-offs accepted:**
+
+- *In-transit data loss* if both NVMes die simultaneously **before** background migration completes. Bounded by SSD residency time. Mac source still has the bytes if you don't delete-on-the-Mac until verified.
+- *Sustained-write throttling* once cache fills (~3.6 TB usable) — drops to HDD migration rate (~150 MB/s mirrored).
+- *No mainline kernel as of Linux 6.18* — bcachefs ships as a DKMS / out-of-tree module. Our kernel build pipeline pins `bcachefs-tools v1.38.2` and compiles `bcachefs.ko` against the in-house monolithic kernel (see [kernel/build-kernel.sh](kernel/build-kernel.sh)).
 
 ---
 
 ## Build (one-time, destructive)
 
-Wipes `sda`, `sdb`, `nvme1n1`, `nvme2n1`. System drive `nvme0n1` untouched.
+Wipes `sda`, `sdb`, `nvme1n1`, `nvme2n1`. Boot drive `nvme0n1` untouched.
 
 ```sh
 # Pre-flight
@@ -72,73 +61,65 @@ systemctl stop smbd nmbd nas.service
 
 # Wipe
 wipefs -a /dev/sda /dev/sdb /dev/nvme1n1 /dev/nvme2n1
-blkdiscard /dev/nvme1n1 /dev/nvme2n1   # full TRIM, NVMe only
+blkdiscard /dev/nvme1n1 /dev/nvme2n1   # NVMe full TRIM
 
-# RAID — both arrays mirrored (md0 = HDD truth, md1 = NVMe cache mirror)
-mdadm --create /dev/md0 --level=1 --raid-devices=2 --metadata=1.2 \
-      --bitmap=internal --assume-clean --run /dev/sda /dev/sdb
-mdadm --create /dev/md1 --level=1 --raid-devices=2 --metadata=1.2 \
-      --bitmap=internal --assume-clean --run /dev/nvme1n1 /dev/nvme2n1
-mdadm --detail --scan > /etc/mdadm/mdadm.conf
+# Format — every flag has a Kent citation, see §Why this stack.
+# `-f` overrides the libblkid >= 2.40.1 check (Ubuntu 24.04 ships 2.39.3).
+# Discard is auto-set per-device at format time (visible in show-super); not a format flag in v1.38.2.
+bcachefs format -f \
+  --label=hdd.exos1   --durability=1 --data_allowed=journal,btree,user  /dev/sda \
+  --label=hdd.exos2   --durability=1 --data_allowed=journal,btree,user  /dev/sdb \
+  --label=ssd.990pro  --durability=0 --data_allowed=user                /dev/nvme1n1 \
+  --label=ssd.sn850x  --durability=0 --data_allowed=user                /dev/nvme2n1 \
+  --foreground_target=ssd \
+  --background_target=hdd \
+  --promote_target=ssd \
+  --metadata_target=hdd \
+  --data_replicas=2 \
+  --metadata_replicas=2 \
+  --compression=none
 
-# LVM (md0 only — md1 is bcache cache, not an LVM PV)
-pvcreate -ff -y /dev/md0
-vgcreate vg_nas /dev/md0
-lvcreate -y -n xfs_log  -L 2G   vg_nas /dev/md0   # external XFS journal, HDD-only
-lvcreate -y -n nas_data -l 95%FREE vg_nas /dev/md0   # bcache backing
-
-# bcache (writeback, 4 MiB buckets)
-apt install -y bcache-tools
-make-bcache --writeback --discard --bucket 4M \
-            -B /dev/vg_nas/nas_data -C /dev/md1
-udevadm settle
-
-# Tunables (cache_mode is in superblock; sequential_cutoff is sysfs-only — re-applied at boot by nas.service)
-echo writeback > /sys/block/bcache0/bcache/cache_mode
-echo 0         > /sys/block/bcache0/bcache/sequential_cutoff
-
-# XFS — data on /dev/bcache0, log on the HDD-only LV
-mkfs.xfs -f -l logdev=/dev/vg_nas/xfs_log,size=512m -L nas /dev/bcache0
+# Mount
 mkdir -p /nas
-mount -o logdev=/dev/vg_nas/xfs_log,noatime /dev/bcache0 /nas
+modprobe bcachefs
+bcachefs mount -o noatime UUID=$(bcachefs show-super /dev/sda | awk '/^External UUID:/{print $3}') /nas
 
 # Share roots
 mkdir -p /nas/media /nas/st /nas/data /nas/tm
 chown st:st /nas/media /nas/st /nas/data /nas/tm
 chmod 755 /nas/{media,st,data,tm}
 
-# Services
+# Bring services back
 systemctl start smbd nmbd
 ```
+
+The format command is the entire stack definition. There is no LVM, no dm-cache, no separate journal device — bcachefs handles all of it from `--label` and `--foreground_target` onward.
 
 ---
 
 ## Mount
 
-`nas.service` is the entry point. udev auto-registers bcache when md1 + the nas_data LV both come up at boot.
+`nas.service` is the entry point. The kernel module loads via `/etc/modules-load.d/bcachefs.conf`; udev settles all four devices; bcachefs assembles the FS from the superblock UUID.
 
 ```ini
 # /etc/systemd/system/nas.service
 [Unit]
-Description=Mount NAS storage pool (XFS over bcache writeback over mdraid)
+Description=Mount NAS storage pool (bcachefs hybrid: HDD truth + NVMe writeback)
 After=systemd-modules-load.service local-fs-pre.target
 Wants=local-fs-pre.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=-/sbin/mdadm --assemble --scan
-ExecStartPre=-/sbin/vgchange -ay vg_nas
-# Wait for udev to surface /dev/bcache0
-ExecStartPre=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do [ -b /dev/bcache0 ] && exit 0; sleep 1; done; echo /dev/bcache0 not found; exit 1'
-# sequential_cutoff is sysfs-only and resets to default each boot
-ExecStartPre=/bin/sh -c 'echo writeback > /sys/block/bcache0/bcache/cache_mode; echo 0 > /sys/block/bcache0/bcache/sequential_cutoff'
-ExecStart=/usr/bin/mount -o logdev=/dev/vg_nas/xfs_log,noatime /dev/bcache0 /nas
+ExecStartPre=/sbin/modprobe bcachefs
+ExecStart=/usr/local/sbin/bcachefs mount -o noatime UUID=<fs-uuid> /nas
 ExecStop=/usr/bin/umount /nas
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+`noatime` is a standard mount-time flag honored by bcachefs's VFS layer. The on-disk format upgrade behavior is a *superblock* option (`version_upgrade`) — set via `bcachefs set-fs-option -o version_upgrade=none /nas` post-mount if you want to pin the on-disk format and refuse silent upgrades. Default is `compatible` (auto-upgrades only safe features).
 
 ---
 
@@ -146,82 +127,64 @@ WantedBy=multi-user.target
 
 ### Drain cache before deleting source on the writing host
 
-Workflow that makes the writeback risk operational, not theoretical:
+Before deleting the Mac-side copy after a big upload:
 
 ```sh
-sync                                                # flush page cache
-echo 1 > /sys/block/bcache0/bcache/writeback_running   # already on; harmless
-echo 0 > /sys/block/bcache0/bcache/writeback_percent   # drain to 0% dirty target
-# poll until dirty_data hits 0
-while :; do
-  dirty=$(awk '{print $1}' /sys/block/bcache0/bcache/dirty_data)
-  echo "dirty bytes: $dirty"
-  [ "$dirty" -le 1024 ] && break
-  sleep 5
-done
-echo 10 > /sys/block/bcache0/bcache/writeback_percent  # restore default
+# Force background migration to finish
+bcachefs reconcile wait    # blocks until reconcile passes complete
+
+# Verify cache devices have only 'cached' data, no dirty user blocks
+bcachefs fs usage /nas | grep -E 'ssd|nvme'
 ```
 
-After `dirty_data ≈ 0`, every byte exists durably on the HDD mirror. Safe to delete source on the Mac.
+Once `cached` is the only non-zero column for the SSDs, every byte exists on the HDDs.
 
-### Inspect cache state
+### Pre-wipe / pre-replace checklist for cache devices
+
+This is the routine that prevents the 2026-05-08 incident from recurring:
 
 ```sh
-cat /sys/block/bcache0/bcache/cache_mode
-cat /sys/block/bcache0/bcache/sequential_cutoff
-cat /sys/block/bcache0/bcache/dirty_data
-cat /sys/fs/bcache/*/cache_available_percent
-cat /sys/block/bcache0/bcache/stats_total/cache_hit_ratio
+# 1. Inspect what data types are physically on the device
+bcachefs show-super /dev/<dev> | grep -E 'state|data_allowed|durability|Has data'
+# Expected for a healthy cache device: data_allowed=user, durability=0, "Has data: user,cached"
+# If "Has data" includes journal or btree: STOP. The data_allowed lockdown drifted.
+
+# 2. Live device usage
+bcachefs fs usage /nas | grep <dev>
+
+# 3. Evacuate (v1.38+ Rust path, version-checked, prints next command on completion)
+bcachefs device evacuate /dev/<dev>
+
+# 4. Wait for reconcile to fully complete
+bcachefs reconcile wait
+
+# 5. Confirm zero
+bcachefs fs usage /nas | grep <dev>     # expect zero user/btree/journal sectors
+
+# 6. Remove from FS
+bcachefs device remove /dev/<dev>
+
+# 7. NOW safe to wipe
+wipefs -a /dev/<dev>
+blkdiscard /dev/<dev>
+
+# 8. Re-add (or add a replacement)
+bcachefs device add --label=ssd.sn850x --durability=0 --data_allowed=user /dev/<new-dev>
+```
+
+The two non-obvious steps are (1) — confirming `data_allowed=user` actually held — and (4) — `reconcile wait` blocks until evacuated data has fully migrated; without it, step 7 is the same race that bit us.
+
+### Inspect FS state
+
+```sh
+bcachefs fs usage -h /nas              # capacity + replication + per-device usage
+bcachefs show-super /dev/sda           # superblock, members, options
+bcachefs reconcile status              # any pending reconcile work
 ```
 
 ### Replace a failed HDD
 
-```sh
-mdadm --manage /dev/md0 --replace /dev/<failed-id> --with /dev/<new-id>
-cat /proc/mdstat   # watch resync
-```
-
-### Replace a failed NVMe (md1 RAID1)
-
-Single NVMe failure: the array goes degraded but bcache continues from the surviving drive. **No data loss, no FS impact.**
-
-```sh
-# Optional but recommended: confirm the failed drive
-cat /proc/mdstat
-mdadm --detail /dev/md1
-
-# Replace the failed drive physically, then re-add to the mirror
-wipefs -a /dev/<new-nvme>
-mdadm --add /dev/md1 /dev/<new-nvme>
-# auto-resync; watch via:
-cat /proc/mdstat
-```
-
-### Recover from total cache loss (both NVMes failed)
-
-This is the unlikely case where both NVMes failed simultaneously with dirty data. **Per `bcache.rst`, expect filesystem corruption.** The recovery is lossy:
-
-```sh
-# 1. Force-run backing without cache (lossy — FS will be inconsistent)
-echo 1 > /sys/block/<backing>/bcache/running
-
-# 2. CRITICAL: do NOT mount yet. Run xfs_repair first.
-xfs_repair -n -l /dev/vg_nas/xfs_log /dev/bcache0    # dry-run, expect errors
-xfs_repair -l /dev/vg_nas/xfs_log /dev/bcache0       # commit repair
-
-# 3. Rebuild md1 from new NVMes, recreate cache, re-attach to backing
-mdadm --stop /dev/md1
-mdadm --create /dev/md1 --level=1 --raid-devices=2 --metadata=1.2 \
-      --bitmap=internal --assume-clean --run /dev/<nvme-1> /dev/<nvme-2>
-make-bcache --writeback --discard --bucket 4M -C /dev/md1
-echo <new_cache_set_uuid> > /sys/block/bcache0/bcache/attach
-
-# 4. Mount and inspect what survived
-mount -o logdev=/dev/vg_nas/xfs_log,noatime /dev/bcache0 /nas
-ls /nas/lost+found  # repair-relocated files end up here
-```
-
-Files that had data fully migrated to HDD: intact. Files with metadata-only-in-cache writes: likely in `lost+found` with inode-numbered names. Restore what you can; replace what you can't.
+`bcachefs device set-state failed /dev/<dev>` then `bcachefs device evacuate /dev/<dev>` to migrate any singletons; replace, `bcachefs device add --label=hdd.exosN --durability=1 …`.
 
 ---
 
@@ -229,20 +192,28 @@ Files that had data fully migrated to HDD: intact. Files with metadata-only-in-c
 
 | Failure | Effect | Recovery |
 |---|---|---|
-| 1 HDD dies | RAID1 degraded; FS keeps running | `mdadm --replace`; auto-resync |
-| **1 NVMe dies** | **md1 RAID1 degraded; cache continues serving from surviving drive. No FS impact, no dirty data loss.** | replace failed NVMe, `mdadm --add`, auto-resync |
-| Both NVMes die | bcache cache lost; if dirty data was in flight, **expect FS corruption per `bcache.rst`** ("don't expect the filesystem to be recoverable - massive filesystem corruption"). The XFS external log on HDD does *not* save you — it replays metadata against a data device whose recent writes were trapped in the dead cache. | force-run backing → `xfs_repair -n` (dry) → `xfs_repair` → mount; expect file/folder loss + lost+found content |
-| Both HDDs die | catastrophic — no truth | restore from backup |
-| Power loss with cache intact | dirty data preserved on cache; bcache journal + XFS log replay produce consistent FS on next mount | nothing to do; mount as normal |
-| Cache device hot-removed (mid-operation) | `stop_when_cache_set_failed=auto` halts /dev/bcache0; if dirty, FS may need repair | replace, re-create cache, re-attach; run `xfs_repair` first |
+| 1 HDD dies | FS keeps running degraded; data still on the other HDD | replace HDD, `bcachefs device add`, reconcile fills it |
+| 1 NVMe dies | Cache layer degrades; **`durability=0` means no replica accounting impact** — only dirty data on that drive (not yet migrated) is lost | replace, re-add as `durability=0` `data_allowed=user`; cache repopulates organically |
+| Both NVMes die | Lose only un-migrated dirty data; FS itself unaffected because btree/journal live on HDDs (`data_allowed=user` lockdown) | replace both, re-add, resume |
+| Both HDDs die | catastrophic — durable tier gone | restore from backup |
+| Power loss with cache intact | bcachefs journal replay produces a consistent FS | nothing to do |
+| Cache device wiped while holding btree | recovery via `scan_for_btree_nodes`; lost+found relocation | **prevented at format time** by `data_allowed=user` — kernel refuses to place btree on cache |
 
-Bit-rot is **not detected** by this stack — there's no per-block checksum. Mitigation: periodic `sha256sum -c` against tree manifests of important paths (Photos, source code, models). Schedule monthly.
+Bit-rot is detected at extent CRC level and self-healed from the other replica during read or scrub.
 
-### Why single NVMe failure is safe
+---
 
-Writeback mode means file *data* and XFS *metadata* both route through bcache. If the cache device dies with dirty blocks (writes that haven't drained to HDD yet), you don't just lose those file bytes — you lose XFS metadata that may reference unrelated parts of the filesystem (per `Documentation/admin-guide/bcache.rst` line 121: *"don't expect the filesystem to be recoverable"*). The XFS journal on a separate LV survives, but it replays metadata operations against the data device's stale state and cannot reconstruct lost cache content.
+## Why we don't tune most things
 
-RAID1 of the NVMe cache pool fixes this for single-NVMe failure: when one drive dies, mdraid serves the cache from the surviving drive, bcache keeps running, no dirty data is lost. Two simultaneous NVMe failures is the only path to the corruption case above — rare with proper SMART monitoring + drive replacement.
+bcachefs's defaults are workload-tuned by the maintainer. Per PoO §6 option reference:
+
+- `compression=none` is the right call for media (already compressed) and Time Machine bands (also compressed). CPU spent on compression is CPU not spent serving SMB.
+- `journal_flush_disabled` is **dangerous** ("data loss is expected on any unclean shutdown"). Default off.
+- `degraded=very` is **dangerous** ("creates splitbrain risk"). Default off.
+- `casefold` is empty-directory-only and the macOS Finder side already handles case insensitivity via Samba `case sensitive = no`. Default off.
+- Erasure coding is explicitly marked "DO NOT USE YET" in PoO §6.1.
+
+The only knobs we set explicitly are the `--label`, `--durability`, `--data_allowed`, and `*_target` flags above. Everything else stays at Kent's defaults.
 
 ---
 
@@ -250,7 +221,7 @@ RAID1 of the NVMe cache pool fixes this for single-NVMe failure: when one drive 
 
 | Share | Path | Access | Notes |
 |---|---|---|---|
-| media | `/nas/media` | `st`, `laksh` | `force user = st`, `force group = st` — laksh writes land as `st:st` on disk |
+| media | `/nas/media` | `st`, `laksh` | `force user = st`, `force group = st` |
 | st | `/nas/st` | `st` | |
 | data | `/nas/data` | `st` | |
 | iris | `/var/iris/clips` | `st` | `st` is in the `iris` group; dir is `st:iris 2770` (setgid) so iris-service-written clips inherit group `iris` and st can delete via group write. Iris service runs locally and writes to `/var/iris/`; only `clips/` is exposed to SMB. |
@@ -262,5 +233,4 @@ Users are POSIX accounts (`tdbsam` backend requires `getpwnam()` to resolve). SM
 
 Config: SMB3 minimum, macOS fruit/AAPL extensions, NetBIOS disabled, `access based share enum = yes` (each user sees only the shares they can connect to in enumeration). Samba's `vfs objects = catia fruit streams_xattr` requires `samba-vfs-modules` (Ubuntu's `samba` meta-package doesn't pull it).
 
-Mac mounts: `smb://lab.local/media` → `/Volumes/media` (Samba advertises NetBIOS name `nas`; mDNS hostname is still `lab.local`).
-Linux symlinks: `/Volumes/media` → `/nas/media`, `/Volumes/st` → `/nas/st`
+Mac mounts: `smb://lab.local/media` → `/Volumes/media`. Linux symlinks: `/Volumes/media` → `/nas/media`, `/Volumes/st` → `/nas/st`.

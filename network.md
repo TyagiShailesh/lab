@@ -85,3 +85,21 @@ ip addr show br0
 iperf3 -s &                 # test from Mac: iperf3 -c lab.local
 wg show
 ```
+
+---
+
+## Performance — CPU governor must be `performance`
+
+10 GbE single-stream throughput is **CPU-bound** at the smbd/network-stack layer. With the default `powersave` governor, cores idle at ~1 GHz and SMB caps around 100 MB/s — barely Gigabit speed despite the 10 GbE link. Set via `cpu-performance.service` (created by [kernel/build-rootfs.sh](kernel/build-rootfs.sh)) which writes `performance` to every `cpufreq/scaling_governor`.
+
+Verify after any kernel upgrade or fresh install:
+
+```bash
+systemctl is-active cpu-performance.service           # → active
+head -1 /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor   # → performance
+grep MHz /proc/cpuinfo | sort -u | head               # cores at 4.4+ GHz under load
+```
+
+If it's missing, recreate the unit and `systemctl enable --now cpu-performance.service`. With governor=performance, observed Mac SMB single-stream sits ~575 MB/s; 2 parallel copies aggregate ~650 MB/s. **Never run 3+ parallel Finder copies to the same share** — Mac SMB stack fails 2 of 3 transfers under that load (`-43`, "device disappeared" errors), even though the server is fine.
+
+NIC ring buffers also matter at 10 GbE: bump to max via `ethtool -G eno1 rx 8184 tx 8184`, persisted in `/etc/systemd/network/05-eno1-tune.link`.

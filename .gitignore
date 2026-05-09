@@ -1,1 +1,4 @@
 kernel/tb-upstream/net-next/
+system/
+.DS_Store
+**/.DS_Store
